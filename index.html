@@ -1,0 +1,1454 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#f7f1e6" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="Tally" />
+<title>Tally — shared bills</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<style>
+/* ============================================================
+   Tally — warm editorial ledger aesthetic
+   ============================================================ */
+:root{
+  --paper:#f7f1e6;
+  --paper-2:#fbf6ec;
+  --card:#fffdf8;
+  --ink:#211c15;
+  --ink-soft:#5c5346;
+  --muted:#8f857552;
+  --muted-txt:#8b8172;
+  --line:#e7dcc6;
+  --line-strong:#d8cbae;
+  --clay:#c25b3a;        /* primary / you-owe */
+  --clay-deep:#a8492c;
+  --forest:#2f6b4f;      /* positive / owed-to-you / settled */
+  --forest-deep:#255a41;
+  --gold:#c69b3f;
+  --shadow: 0 1px 2px rgba(60,45,25,.06), 0 10px 30px -14px rgba(90,66,30,.28);
+  --shadow-sm: 0 1px 2px rgba(60,45,25,.08);
+  --radius:20px;
+  --radius-sm:13px;
+  --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --sans:'Hanken Grotesk',system-ui,-apple-system,Segoe UI,sans-serif;
+  --serif:'Fraunces','Hoefler Text',Georgia,serif;
+  --safe-b: env(safe-area-inset-bottom, 0px);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{margin:0;padding:0;}
+body{
+  font-family:var(--sans);
+  color:var(--ink);
+  background:
+    radial-gradient(1200px 700px at 80% -10%, #fdf8ee 0%, rgba(253,248,238,0) 60%),
+    radial-gradient(900px 600px at -10% 110%, #f3ead6 0%, rgba(243,234,214,0) 55%),
+    var(--paper);
+  background-attachment:fixed;
+  min-height:100dvh;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+}
+/* subtle paper grain */
+body::before{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.5;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+}
+#app{position:relative;z-index:1;max-width:540px;margin:0 auto;min-height:100dvh;display:flex;flex-direction:column;}
+button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit;}
+input,select,textarea{font-family:inherit;font-size:16px;color:var(--ink);}
+h1,h2,h3{margin:0;font-family:var(--serif);font-weight:600;letter-spacing:-.01em;}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums;letter-spacing:-.02em;}
+.hide{display:none !important;}
+
+/* ---------- top bar ---------- */
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:18px 20px 6px;}
+.brand{display:flex;align-items:center;gap:10px;}
+.brand .mark{width:30px;height:30px;border-radius:9px;background:linear-gradient(150deg,var(--clay),var(--clay-deep));
+  display:grid;place-items:center;color:#fff;font-family:var(--serif);font-weight:700;font-size:18px;box-shadow:var(--shadow-sm);}
+.brand b{font-family:var(--serif);font-size:22px;font-weight:600;letter-spacing:-.02em;}
+.who{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);
+  padding:6px 8px 6px 12px;border-radius:999px;box-shadow:var(--shadow-sm);font-size:13px;font-weight:600;color:var(--ink-soft);}
+.who .dot{width:9px;height:9px;border-radius:50%;background:var(--clay);}
+.who svg{width:15px;height:15px;opacity:.55}
+
+/* ---------- screens ---------- */
+main{flex:1;padding:8px 16px 120px;}
+.screen{animation:fade .35s ease both;}
+@keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+
+/* ---------- balance hero ---------- */
+.hero{position:relative;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  padding:26px 24px 22px;box-shadow:var(--shadow);overflow:hidden;animation:rise .5s ease both;}
+.hero::after{content:"";position:absolute;top:-40%;right:-30%;width:260px;height:260px;border-radius:50%;
+  background:radial-gradient(circle,rgba(198,155,63,.16),transparent 70%);}
+.hero .eyebrow{font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--muted-txt);}
+.hero .amount{font-family:var(--serif);font-size:46px;line-height:1.02;font-weight:600;margin:8px 0 2px;letter-spacing:-.02em;}
+.hero .amount.owe{color:var(--clay);}
+.hero .amount.owed{color:var(--forest);}
+.hero .amount.even{color:var(--ink);}
+.hero .sub{color:var(--ink-soft);font-size:15px;font-weight:500;}
+.hero .sub b{font-weight:700;}
+.hero-actions{display:flex;gap:10px;margin-top:18px;position:relative;}
+.hero-actions .btn{flex:1;}
+
+/* ---------- buttons ---------- */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;font-weight:700;font-size:15px;
+  padding:12px 16px;border-radius:13px;transition:transform .08s ease, filter .15s ease, background .15s;border:1px solid transparent;}
+.btn:active{transform:scale(.97);}
+.btn-primary{background:linear-gradient(160deg,var(--clay),var(--clay-deep));color:#fff;box-shadow:0 6px 16px -8px rgba(168,73,44,.8);}
+.btn-ghost{background:var(--paper-2);color:var(--ink);border-color:var(--line-strong);}
+.btn-forest{background:linear-gradient(160deg,var(--forest),var(--forest-deep));color:#fff;box-shadow:0 6px 16px -8px rgba(37,90,65,.7);}
+.btn-danger{background:#fff;color:var(--clay-deep);border-color:#e7c3b6;}
+.btn-sm{padding:9px 13px;font-size:13.5px;border-radius:10px;}
+.btn svg{width:17px;height:17px;}
+.btn[disabled]{opacity:.5;pointer-events:none;}
+
+/* ---------- section heads ---------- */
+.sec-head{display:flex;align-items:baseline;justify-content:space-between;margin:26px 4px 12px;}
+.sec-head h2{font-size:20px;}
+.sec-head .link{font-size:13px;font-weight:700;color:var(--clay);}
+
+/* ---------- transaction list ---------- */
+.month-label{font-family:var(--serif);font-style:italic;font-size:15px;color:var(--muted-txt);margin:20px 6px 8px;
+  display:flex;justify-content:space-between;align-items:baseline;}
+.month-label span:last-child{font-family:var(--mono);font-style:normal;font-size:12.5px;letter-spacing:0;}
+.tx{display:flex;align-items:center;gap:13px;background:var(--card);border:1px solid var(--line);
+  border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:9px;box-shadow:var(--shadow-sm);
+  transition:transform .08s, box-shadow .15s;animation:rise .4s ease both;}
+.tx:active{transform:scale(.985);}
+.tx .ic{width:42px;height:42px;border-radius:11px;flex:none;display:grid;place-items:center;font-size:20px;
+  background:var(--paper-2);border:1px solid var(--line);}
+.tx .meta{flex:1;min-width:0;}
+.tx .meta .t{font-weight:600;font-size:15.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.tx .meta .s{font-size:12.5px;color:var(--muted-txt);margin-top:2px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.tx .meta .s .clip{display:inline-flex;align-items:center;gap:3px;}
+.tx .meta .s svg{width:12px;height:12px;opacity:.6;}
+.tx .amt{text-align:right;flex:none;}
+.tx .amt .n{font-family:var(--mono);font-weight:700;font-size:15.5px;}
+.tx .amt .l{font-size:11px;color:var(--muted-txt);margin-top:2px;font-weight:600;letter-spacing:.02em;}
+.tx.settlement .ic{background:#e9f2ec;border-color:#cfe4d7;}
+.tx.settlement .amt .n{color:var(--forest);}
+.pos{color:var(--forest);} .neg{color:var(--clay);}
+
+.empty{text-align:center;padding:46px 20px;color:var(--muted-txt);animation:fade .5s;}
+.empty .big{font-size:40px;margin-bottom:8px;}
+.empty p{margin:6px 0 0;font-size:14.5px;}
+
+/* ---------- bottom nav ---------- */
+.nav{position:fixed;bottom:0;left:0;right:0;z-index:40;}
+.nav-inner{max-width:540px;margin:0 auto;padding:8px 14px calc(8px + var(--safe-b));display:flex;align-items:center;justify-content:space-around;
+  background:rgba(251,246,236,.86);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-top:1px solid var(--line);}
+.nav a{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10.5px;font-weight:700;color:var(--muted-txt);
+  padding:5px 12px;letter-spacing:.02em;transition:color .15s;}
+.nav a svg{width:22px;height:22px;stroke-width:1.9;}
+.nav a.on{color:var(--clay);}
+.fab{width:56px;height:56px;margin-top:-26px;border-radius:50%;background:linear-gradient(155deg,var(--clay),var(--clay-deep));
+  color:#fff;display:grid;place-items:center;box-shadow:0 10px 22px -8px rgba(168,73,44,.9);border:3px solid var(--paper-2);}
+.fab svg{width:26px;height:26px;stroke-width:2.4;}
+.fab:active{transform:scale(.93);}
+
+/* ---------- modal / sheet ---------- */
+.scrim{position:fixed;inset:0;z-index:60;background:rgba(40,30,15,.42);backdrop-filter:blur(2px);
+  display:flex;align-items:flex-end;justify-content:center;animation:fade .2s;}
+@media(min-width:560px){.scrim{align-items:center;}}
+.sheet{width:100%;max-width:540px;max-height:94dvh;overflow-y:auto;background:var(--paper-2);
+  border-radius:26px 26px 0 0;border:1px solid var(--line);box-shadow:0 -10px 40px -10px rgba(60,40,10,.4);
+  animation:slideup .32s cubic-bezier(.2,.9,.3,1) both;padding:8px 20px calc(26px + var(--safe-b));}
+@media(min-width:560px){.sheet{border-radius:24px;animation:rise .3s both;}}
+@keyframes slideup{from{transform:translateY(100%)}to{transform:none}}
+.grip{width:40px;height:4px;border-radius:99px;background:var(--line-strong);margin:8px auto 6px;}
+.sheet h2{font-size:23px;margin:6px 2px 2px;}
+.sheet .close{position:absolute;}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;margin:4px 0 14px;}
+.sheet-head .x{width:34px;height:34px;border-radius:50%;background:var(--paper);border:1px solid var(--line);display:grid;place-items:center;color:var(--ink-soft);}
+.sheet-head .x svg{width:18px;height:18px;}
+
+/* ---------- forms ---------- */
+.field{margin-bottom:15px;}
+.field > label{display:block;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-txt);margin:0 2px 7px;}
+.input, textarea.input, select.input{width:100%;background:var(--card);border:1px solid var(--line-strong);border-radius:12px;
+  padding:13px 14px;font-size:16px;outline:none;transition:border .15s, box-shadow .15s;}
+.input:focus{border-color:var(--clay);box-shadow:0 0 0 3px rgba(194,91,58,.13);}
+textarea.input{resize:vertical;min-height:64px;}
+.amount-field{position:relative;}
+.amount-field .cur{position:absolute;left:14px;top:50%;transform:translateY(-50%);font-family:var(--mono);font-weight:700;color:var(--muted-txt);font-size:22px;}
+.amount-field input{font-family:var(--mono);font-weight:700;font-size:30px;padding:14px 14px 14px 40px;letter-spacing:-.02em;text-align:left;}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+
+/* segmented */
+.seg{display:flex;background:var(--paper);border:1px solid var(--line-strong);border-radius:12px;padding:4px;gap:4px;}
+.seg button{flex:1;padding:9px 6px;border-radius:9px;font-weight:700;font-size:13.5px;color:var(--ink-soft);transition:.15s;}
+.seg button.on{background:var(--card);color:var(--ink);box-shadow:var(--shadow-sm);}
+.seg.clay button.on{color:var(--clay-deep);}
+
+/* category chips */
+.chips{display:flex;flex-wrap:wrap;gap:8px;}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:9px 13px;border-radius:11px;background:var(--card);
+  border:1px solid var(--line-strong);font-weight:600;font-size:13.5px;color:var(--ink-soft);transition:.12s;}
+.chip .em{font-size:15px;}
+.chip.on{background:var(--ink);color:var(--paper-2);border-color:var(--ink);}
+
+/* split editor */
+.split-box{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;}
+.split-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0;}
+.split-row + .split-row{border-top:1px dashed var(--line);}
+.split-row .nm{font-weight:700;font-size:14.5px;}
+.split-row .in{width:120px;}
+.split-row .in input{text-align:right;font-family:var(--mono);font-weight:600;}
+.split-hint{font-size:12.5px;color:var(--muted-txt);margin-top:6px;text-align:right;}
+.split-hint.bad{color:var(--clay);font-weight:700;}
+.slider-wrap{padding:6px 2px 0;}
+input[type=range]{width:100%;accent-color:var(--clay);}
+.ratio-legend{display:flex;justify-content:space-between;font-size:12.5px;font-weight:700;margin-top:6px;color:var(--ink-soft);}
+
+/* receipt */
+.receipt-drop{display:flex;align-items:center;gap:14px;background:var(--card);border:1.5px dashed var(--line-strong);
+  border-radius:14px;padding:14px;cursor:pointer;}
+.receipt-drop svg{width:26px;height:26px;color:var(--clay);}
+.receipt-drop .txt b{display:block;font-size:14.5px;}
+.receipt-drop .txt span{font-size:12.5px;color:var(--muted-txt);}
+.receipt-thumb{position:relative;border-radius:14px;overflow:hidden;border:1px solid var(--line);}
+.receipt-thumb img{width:100%;display:block;max-height:240px;object-fit:cover;}
+.receipt-thumb .rm{position:absolute;top:8px;right:8px;background:rgba(0,0,0,.55);color:#fff;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;}
+.receipt-thumb .rm svg{width:16px;height:16px;}
+
+/* payer picker */
+.payer{display:flex;gap:10px;}
+.payer button{flex:1;padding:12px;border-radius:12px;border:1.5px solid var(--line-strong);background:var(--card);font-weight:700;transition:.12s;display:flex;flex-direction:column;align-items:center;gap:4px;}
+.payer button .av{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-family:var(--serif);font-weight:700;color:#fff;font-size:15px;}
+.payer button.on{border-color:var(--clay);background:#fdf3ee;}
+
+/* summary */
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:6px;}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;box-shadow:var(--shadow-sm);animation:rise .4s both;}
+.stat .k{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-txt);}
+.stat .v{font-family:var(--serif);font-size:27px;font-weight:600;margin-top:4px;}
+.stat .v small{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--muted-txt);}
+.monthnav{display:flex;align-items:center;justify-content:space-between;background:var(--card);border:1px solid var(--line);
+  border-radius:13px;padding:8px 10px;margin-bottom:16px;box-shadow:var(--shadow-sm);}
+.monthnav button{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;background:var(--paper-2);border:1px solid var(--line);}
+.monthnav button svg{width:18px;height:18px;}
+.monthnav .lbl{font-family:var(--serif);font-size:17px;font-weight:600;}
+.catbar{margin-bottom:13px;}
+.catbar .top{display:flex;justify-content:space-between;align-items:baseline;font-size:14px;margin-bottom:5px;}
+.catbar .top .nm{font-weight:600;display:flex;align-items:center;gap:7px;}
+.catbar .top .vv{font-family:var(--mono);font-weight:700;font-size:13.5px;}
+.catbar .track{height:9px;border-radius:99px;background:var(--paper);overflow:hidden;border:1px solid var(--line);}
+.catbar .fill{height:100%;border-radius:99px;background:linear-gradient(90deg,var(--clay),var(--gold));transition:width .5s;}
+.who-split{display:flex;gap:12px;margin:8px 0 0;}
+.who-split .c{flex:1;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:13px 14px;box-shadow:var(--shadow-sm);}
+.who-split .c .nm{font-size:13px;font-weight:700;color:var(--muted-txt);}
+.who-split .c .vv{font-family:var(--mono);font-weight:700;font-size:19px;margin-top:3px;}
+
+/* recurring rows */
+.rec{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:13px 14px;margin-bottom:10px;box-shadow:var(--shadow-sm);}
+.rec .meta{flex:1;}
+.rec .meta .t{font-weight:700;font-size:15px;}
+.rec .meta .s{font-size:12.5px;color:var(--muted-txt);margin-top:2px;}
+.switch{width:46px;height:27px;border-radius:99px;background:var(--line-strong);position:relative;transition:.2s;flex:none;}
+.switch.on{background:var(--forest);}
+.switch::after{content:"";position:absolute;top:3px;left:3px;width:21px;height:21px;border-radius:50%;background:#fff;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.25);}
+.switch.on::after{transform:translateX(19px);}
+
+/* settings */
+.card-list{background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden;box-shadow:var(--shadow-sm);margin-bottom:18px;}
+.set-row{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line);}
+.set-row:last-child{border-bottom:none;}
+.set-row .lbl{flex:1;font-weight:600;font-size:15px;}
+.set-row .lbl small{display:block;font-weight:500;color:var(--muted-txt);font-size:12.5px;margin-top:2px;}
+.set-row .val{font-family:var(--mono);font-size:14px;color:var(--ink-soft);font-weight:600;}
+.set-row.tap:active{background:var(--paper-2);}
+.pill{font-size:11px;font-weight:800;letter-spacing:.05em;padding:4px 9px;border-radius:99px;text-transform:uppercase;}
+.pill.local{background:#f3ead6;color:#8a6a1f;}
+.pill.cloud{background:#e2f0e8;color:var(--forest-deep);}
+
+/* onboarding */
+.onb{padding:30px 22px calc(40px + var(--safe-b));animation:fade .4s;max-width:540px;margin:0 auto;}
+.onb .logo{font-family:var(--serif);font-size:44px;font-weight:600;letter-spacing:-.02em;display:flex;align-items:center;gap:12px;}
+.onb .logo .mark{width:46px;height:46px;border-radius:13px;background:linear-gradient(150deg,var(--clay),var(--clay-deep));display:grid;place-items:center;color:#fff;font-size:26px;box-shadow:var(--shadow);}
+.onb .lede{font-size:16px;color:var(--ink-soft);margin:10px 2px 26px;line-height:1.5;}
+.step-card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:20px;box-shadow:var(--shadow);margin-bottom:16px;}
+.step-card h3{font-size:18px;margin-bottom:14px;display:flex;align-items:center;gap:9px;}
+.step-card h3 .num{width:24px;height:24px;border-radius:50%;background:var(--clay);color:#fff;display:grid;place-items:center;font-family:var(--sans);font-size:13px;font-weight:800;flex:none;}
+details.help{border:1px dashed var(--line-strong);border-radius:12px;padding:0 14px;margin-top:12px;background:var(--paper-2);}
+details.help summary{padding:12px 0;font-weight:700;font-size:13.5px;color:var(--clay);cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;}
+details.help summary::-webkit-details-marker{display:none;}
+details.help[open] summary{border-bottom:1px dashed var(--line);}
+details.help ol{margin:12px 0;padding-left:20px;font-size:13.5px;color:var(--ink-soft);line-height:1.7;}
+details.help code{font-family:var(--mono);font-size:12px;background:var(--paper);padding:1px 5px;border-radius:5px;}
+
+/* toast */
+#toast{position:fixed;bottom:calc(96px + var(--safe-b));left:50%;transform:translateX(-50%) translateY(20px);
+  background:var(--ink);color:var(--paper-2);padding:12px 20px;border-radius:13px;font-weight:600;font-size:14px;
+  z-index:90;opacity:0;transition:.28s;box-shadow:0 8px 24px -8px rgba(0,0,0,.5);pointer-events:none;max-width:88%;text-align:center;}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+.banner{background:#fdf3ee;border:1px solid #eccdc0;color:var(--clay-deep);border-radius:12px;padding:11px 14px;font-size:13px;font-weight:600;margin:0 0 12px;display:flex;gap:8px;align-items:flex-start;}
+.banner svg{width:18px;height:18px;flex:none;margin-top:1px;}
+
+.viewer{position:fixed;inset:0;z-index:80;background:rgba(20,14,6,.92);display:flex;flex-direction:column;animation:fade .2s;}
+.viewer .bar{display:flex;justify-content:space-between;padding:16px calc(16px + var(--safe-b));}
+.viewer .bar button{color:#fff;font-weight:700;display:flex;align-items:center;gap:6px;font-size:15px;}
+.viewer .bar button svg{width:20px;height:20px;}
+.viewer .img{flex:1;display:flex;align-items:center;justify-content:center;padding:10px 10px 30px;overflow:auto;}
+.viewer .img img{max-width:100%;max-height:100%;border-radius:10px;}
+.spin{width:22px;height:22px;border:3px solid var(--line);border-top-color:var(--clay);border-radius:50%;animation:sp 1s linear infinite;margin:30px auto;}
+@keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div id="app"><div class="spin"></div></div>
+<div id="toast"></div>
+
+<script>
+"use strict";
+/* ================================================================
+   TALLY — shared bill tracker for two people
+   Single file. Works in LOCAL mode (this device) out of the box,
+   and upgrades to CLOUD sync (Firebase) when a config is saved.
+   ================================================================ */
+
+/* ---------- constants ---------- */
+const CFG_KEY = 'tally.config.v1';
+const LOCAL_DATA_KEY = 'tally.data.v1';
+const LOCAL_RCPT_KEY = 'tally.receipts.v1';
+
+const CATEGORIES = [
+  {k:'groceries', label:'Groceries', em:'🛒'},
+  {k:'dining',    label:'Dining',    em:'🍽️'},
+  {k:'rent',      label:'Rent',      em:'🏠'},
+  {k:'utilities', label:'Utilities', em:'💡'},
+  {k:'transport', label:'Transport', em:'🚗'},
+  {k:'travel',    label:'Travel',    em:'✈️'},
+  {k:'shopping',  label:'Shopping',  em:'🛍️'},
+  {k:'health',    label:'Health',    em:'💊'},
+  {k:'fun',       label:'Fun',       em:'🎉'},
+  {k:'pets',      label:'Pets',      em:'🐾'},
+  {k:'gifts',     label:'Gifts',     em:'🎁'},
+  {k:'other',     label:'Other',     em:'🧾'},
+];
+const catOf = k => CATEGORIES.find(c=>c.k===k) || CATEGORIES[CATEGORIES.length-1];
+
+const AV_COLORS = ['#c25b3a','#2f6b4f'];
+
+/* ---------- app state ---------- */
+let config = null;        // {members:[{id,name}], currency, deviceMemberId, firebase:{config,household}|null}
+let state = {             // live data
+  meta:null,              // {members, currency}  (cloud-authoritative when synced)
+  transactions:{},        // id -> txn
+  recurring:{},           // id -> template
+  skipRecurring:{},       // id -> true : recurring instances the user deleted on purpose
+};
+let cloud = null;         // {app, db, auth, hid, unsub:[]}
+let currentScreen = 'home';
+let summaryMonth = null;   // 'YYYY-MM'
+const receiptCache = {};   // id -> full dataURL (fetched on demand)
+
+/* ================================================================
+   tiny DOM helpers
+   ================================================================ */
+const $ = sel => document.querySelector(sel);
+const app = document.getElementById('app');
+function h(tag, attrs={}, ...kids){
+  const e=document.createElement(tag);
+  for(const [k,v] of Object.entries(attrs||{})){
+    if(v==null||v===false) continue;
+    if(k==='class') e.className=v;
+    else if(k==='html') e.innerHTML=v;
+    else if(k.startsWith('on')&&typeof v==='function') e.addEventListener(k.slice(2),v);
+    else if(k==='style'&&typeof v==='object') Object.assign(e.style,v);
+    else e.setAttribute(k,v);
+  }
+  for(const kid of kids.flat()){ if(kid==null||kid===false) continue; e.append(kid.nodeType?kid:document.createTextNode(kid)); }
+  return e;
+}
+const icon = (paths,extra='') => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" ${extra}>${paths}</svg>`;
+const ICONS = {
+  home:'<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/>',
+  list:'<path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3.5" cy="6" r="1.2"/><circle cx="3.5" cy="12" r="1.2"/><circle cx="3.5" cy="18" r="1.2"/>',
+  chart:'<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+  repeat:'<path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>',
+  gear:'<circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.2A1.6 1.6 0 0 0 7 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0-1.1-2.7H1a2 2 0 1 1 0-4h.2A1.6 1.6 0 0 0 2.6 7a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 7 2.6h.1A1.6 1.6 0 0 0 9 1V1a2 2 0 1 1 4 0v.2A1.6 1.6 0 0 0 15 2.6a1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V7a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.2a1.6 1.6 0 0 0-1.4 1z"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  x:'<path d="M6 6l12 12M18 6 6 18"/>',
+  left:'<path d="M15 18l-6-6 6-6"/>',
+  right:'<path d="M9 18l6-6-6-6"/>',
+  clip:'<path d="M21.4 11.05 12.25 20.2a5 5 0 0 1-7.07-7.07l9.19-9.19a3 3 0 0 1 4.24 4.24l-9.2 9.19a1 1 0 0 1-1.41-1.42l8.48-8.48"/>',
+  cam:'<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>',
+  trash:'<path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>',
+  swap:'<path d="M7 10l-4 4 4 4"/><path d="M3 14h13a5 5 0 0 0 0-10h-1"/>',
+  info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>',
+  down:'<path d="M12 3v13M7 12l5 5 5-5M5 21h14"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>',
+};
+
+/* ================================================================
+   money helpers  (compute in integer cents to avoid float drift)
+   ================================================================ */
+const toC = n => Math.round((Number(n)||0)*100);
+const fromC = c => c/100;
+function money(n, withSign=false){
+  const cur = (state.meta&&state.meta.currency) || (config&&config.currency) || 'CAD';
+  const neg = n<0;
+  let s;
+  try{ s = new Intl.NumberFormat(undefined,{style:'currency',currency:cur}).format(Math.abs(n)); }
+  catch(e){ s = '$'+Math.abs(n).toFixed(2); }
+  return (withSign?(neg?'−':'+'):'')+s;
+}
+// tolerant amount parser: accepts "$1,234.50", "1234", "84.50", and comma-decimal "12,50".
+// returns NaN for empty/garbage so the >0 guards still work.
+function parseAmount(v){
+  if(v==null) return NaN;
+  let s=String(v).trim().replace(/[^0-9.,-]/g,'');
+  if(!s) return NaN;
+  const lastComma=s.lastIndexOf(','), lastDot=s.lastIndexOf('.');
+  if(lastComma>-1 && lastDot>-1){
+    // right-most separator is the decimal point; the other is a thousands separator
+    if(lastComma>lastDot) s=s.replace(/\./g,'').replace(',','.');
+    else s=s.replace(/,/g,'');
+  } else if(lastComma>-1){
+    // only commas present: comma with exactly 3 trailing digits == thousands, else decimal
+    s = /,\d{3}$/.test(s) ? s.replace(/,/g,'') : s.replace(',','.');
+  } else {
+    s=s.replace(/,/g,'');
+  }
+  return Number(s);
+}
+const members = () => (state.meta&&state.meta.members) || (config&&config.members) || [{id:'m1',name:'Me'},{id:'m2',name:'Partner'}];
+const memberName = id => (members().find(m=>m.id===id)||{}).name || '—';
+const otherId = id => id==='m1'?'m2':'m1';
+const initials = nm => (nm||'?').trim().charAt(0).toUpperCase();
+
+/* ================================================================
+   SPLIT engine — always resolves to explicit cents each member owes
+   returns {m1:dollars, m2:dollars} summing exactly to amount
+   ================================================================ */
+function computeShares(amount, split, paidBy){
+  const total = toC(amount);
+  const ids = members().map(m=>m.id);
+  let cents = {};
+  if(!split || split.type==='equal'){
+    const half = Math.floor(total/2);
+    cents[ids[0]] = half;
+    cents[ids[1]] = total - half;   // odd cent goes to m2 deterministically
+  } else if(split.type==='full'){
+    const ower = split.owedBy || otherId(paidBy);
+    cents[ower] = total;
+    cents[otherId(ower)] = 0;
+  } else if(split.type==='ratio'){
+    const w0 = Math.max(0, Number(split.weights?.[ids[0]] ?? 50));
+    const w1 = Math.max(0, Number(split.weights?.[ids[1]] ?? 50));
+    const sum = (w0+w1)||1;
+    const c0 = Math.round(total * w0 / sum);
+    cents[ids[0]] = c0;
+    cents[ids[1]] = total - c0;
+  } else if(split.type==='exact'){
+    const c0 = toC(split.exact?.[ids[0]] ?? 0);
+    const c1 = toC(split.exact?.[ids[1]] ?? 0);
+    if(c0+c1 === total){ cents[ids[0]]=c0; cents[ids[1]]=c1; }
+    else {                       // never let stored exacts desync from the total:
+      const keep = (paidBy===ids[0]) ? ids[1] : ids[0];   // preserve the non-payer's stated share
+      cents[keep] = (keep===ids[0]) ? c0 : c1;
+      cents[otherId(keep)] = total - cents[keep];
+    }
+  } else {
+    const half = Math.floor(total/2); cents[ids[0]]=half; cents[ids[1]]=total-half;
+  }
+  return {[ids[0]]:fromC(cents[ids[0]]), [ids[1]]:fromC(cents[ids[1]])};
+}
+
+/* ================================================================
+   BALANCE — net position per member (positive = is owed money)
+   ================================================================ */
+function computeBalances(){
+  const net = {m1:0, m2:0};   // in cents
+  for(const t of Object.values(state.transactions)){
+    if(t.type==='settlement'){
+      net[t.from] += toC(t.amount);   // paying back increases your position
+      net[t.to]   -= toC(t.amount);
+    } else {
+      net[t.paidBy] += toC(t.amount);            // you fronted the money
+      let sh = t.shares;
+      // only trust stored shares if they reconcile to the total; otherwise recompute
+      if(!sh || (toC(sh.m1||0)+toC(sh.m2||0)) !== toC(t.amount)) sh = computeShares(t.amount, t.split, t.paidBy);
+      for(const id of Object.keys(net)) net[id] -= toC(sh[id]||0);  // minus your own share
+    }
+  }
+  return {m1:fromC(net.m1), m2:fromC(net.m2)};
+}
+
+/* ================================================================
+   PERSISTENCE — local + cloud backends behind one interface
+   ================================================================ */
+function loadConfig(){
+  try{ config = JSON.parse(localStorage.getItem(CFG_KEY)); }catch(e){ config=null; }
+}
+function saveConfig(){ localStorage.setItem(CFG_KEY, JSON.stringify(config)); }
+
+/* ---- LOCAL backend ---- */
+function localLoad(){
+  try{
+    const d = JSON.parse(localStorage.getItem(LOCAL_DATA_KEY)) || {};
+    state.transactions = d.transactions || {};
+    state.recurring = d.recurring || {};
+    state.skipRecurring = d.skipRecurring || {};
+    state.meta = { members: config.members, currency: config.currency };
+  }catch(e){ state.transactions={}; state.recurring={}; state.skipRecurring={}; }
+}
+function localPersist(){
+  localStorage.setItem(LOCAL_DATA_KEY, JSON.stringify({transactions:state.transactions, recurring:state.recurring, skipRecurring:state.skipRecurring}));
+}
+function localReceipts(){ try{ return JSON.parse(localStorage.getItem(LOCAL_RCPT_KEY))||{}; }catch(e){ return {}; } }
+function localSaveReceipt(id, data){ const r=localReceipts(); r[id]=data; localStorage.setItem(LOCAL_RCPT_KEY, JSON.stringify(r)); }
+function localDelReceipt(id){ const r=localReceipts(); delete r[id]; localStorage.setItem(LOCAL_RCPT_KEY, JSON.stringify(r)); }
+
+/* ---- CLOUD backend (Firebase, loaded on demand) ---- */
+async function cloudConnect(){
+  const fb = config.firebase;
+  const V='10.12.5';
+  const appMod = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-app.js`);
+  const authMod = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-auth.js`);
+  const fsMod = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-firestore.js`);
+  // tear down any prior session so re-onboarding doesn't leak listeners
+  if(cloud && cloud.unsub) cloud.unsub.forEach(u=>{ try{ u(); }catch(e){} });
+  // reuse the existing default app if present (avoids "app/duplicate-app" on reconnect)
+  const application = appMod.getApps && appMod.getApps().length ? appMod.getApp() : appMod.initializeApp(fb.config);
+  let db;
+  try{
+    db = fsMod.initializeFirestore(application, {
+      localCache: fsMod.persistentLocalCache({tabManager: fsMod.persistentMultipleTabManager()})
+    });
+  }catch(e){ db = fsMod.getFirestore(application); }
+  const auth = authMod.getAuth(application);
+  await new Promise((res,rej)=>{
+    authMod.onAuthStateChanged(auth, u=>{ if(u) res(u); });
+    authMod.signInAnonymously(auth).catch(rej);
+  });
+  cloud = { app:application, db, auth, fs:fsMod, hid:fb.household, unsub:[] };
+  attachCloudListeners();
+}
+function hdoc(...path){ return cloud.fs.doc(cloud.db, 'households', cloud.hid, ...path); }
+function hcol(name){ return cloud.fs.collection(cloud.db, 'households', cloud.hid, name); }
+
+function attachCloudListeners(){
+  const {onSnapshot} = cloud.fs;
+  // meta doc — authoritative names/currency shared by both partners
+  cloud.unsub.push(onSnapshot(cloud.fs.doc(cloud.db,'households',cloud.hid), snap=>{
+    if(snap.exists()){
+      const d = snap.data();
+      state.meta = { members: d.members || config.members, currency: d.currency || config.currency };
+      state.skipRecurring = d.skipRecurring || {};
+      // keep local config names in step for offline display
+      config.members = state.meta.members; config.currency = state.meta.currency; saveConfig();
+    } else {
+      // first connection for this household -> seed from local onboarding values
+      cloud.fs.setDoc(cloud.fs.doc(cloud.db,'households',cloud.hid),
+        { members: config.members, currency: config.currency, createdAt: Date.now() }, {merge:true});
+      state.meta = { members: config.members, currency: config.currency };
+    }
+    if(currentScreen) render();
+  }, err=>toast('Sync error: '+err.code)));
+  cloud.unsub.push(onSnapshot(hcol('transactions'), snap=>{
+    const map={}; snap.forEach(d=>map[d.id]={id:d.id, ...d.data()});
+    state.transactions = map; afterData();
+  }, err=>toast('Sync error: '+err.code)));
+  cloud.unsub.push(onSnapshot(hcol('recurring'), snap=>{
+    const map={}; snap.forEach(d=>map[d.id]={id:d.id, ...d.data()});
+    state.recurring = map; afterData();
+  }, err=>toast('Sync error: '+err.code)));
+}
+
+const isCloud = () => !!(config && config.firebase && config.firebase.config);
+
+/* ---- unified write ops ---- */
+async function persistTransaction(t, receiptFull /*optional*/){
+  state.transactions[t.id] = t;
+  if(isCloud()){
+    const {setDoc} = cloud.fs;
+    const clean = JSON.parse(JSON.stringify(t));
+    await setDoc(hdoc('transactions', t.id), clean);
+    if(receiptFull!==undefined){
+      if(receiptFull) await setDoc(hdoc('receipts', t.id), {data:receiptFull, updatedAt:Date.now()});
+      else await deleteReceiptDoc(t.id);
+    }
+  } else {
+    localPersist();
+    if(receiptFull!==undefined){ if(receiptFull) localSaveReceipt(t.id, receiptFull); else localDelReceipt(t.id); }
+  }
+  if(receiptFull) receiptCache[t.id]=receiptFull;
+  render();
+}
+async function deleteReceiptDoc(id){
+  try{ await cloud.fs.deleteDoc(hdoc('receipts', id)); }catch(e){}
+}
+async function removeTransaction(id){
+  const t = state.transactions[id];
+  delete state.transactions[id]; delete receiptCache[id];
+  const wasRecurring = t && t.recurringId;
+  if(wasRecurring){ state.skipRecurring = state.skipRecurring||{}; state.skipRecurring[id]=true; }
+  if(isCloud()){
+    if(wasRecurring) await cloud.fs.setDoc(cloud.fs.doc(cloud.db,'households',cloud.hid), {skipRecurring:{[id]:true}}, {merge:true});
+    await cloud.fs.deleteDoc(hdoc('transactions', id));
+    await deleteReceiptDoc(id);
+  } else { localPersist(); localDelReceipt(id); }
+  render();
+}
+async function persistRecurring(t){
+  state.recurring[t.id]=t;
+  if(isCloud()) await cloud.fs.setDoc(hdoc('recurring', t.id), JSON.parse(JSON.stringify(t)));
+  else localPersist();
+  render();
+}
+async function removeRecurring(id){
+  delete state.recurring[id];
+  if(isCloud()) await cloud.fs.deleteDoc(hdoc('recurring', id));
+  else localPersist();
+  render();
+}
+async function saveMeta(){
+  state.meta = {members:config.members, currency:config.currency};
+  if(isCloud()) await cloud.fs.setDoc(cloud.fs.doc(cloud.db,'households',cloud.hid),
+      {members:config.members, currency:config.currency}, {merge:true});
+  else localPersist();
+}
+async function fetchReceipt(id){
+  if(receiptCache[id]!==undefined) return receiptCache[id];
+  let data=null;
+  if(isCloud()){
+    try{ const s=await cloud.fs.getDoc(hdoc('receipts',id)); data = s.exists()? s.data().data : null; }catch(e){ data=null; }
+  } else { data = localReceipts()[id]||null; }
+  receiptCache[id]=data; return data;
+}
+
+/* ================================================================
+   RECURRING generation — deterministic ids => idempotent across devices
+   ================================================================ */
+function ymOf(d){ return d.slice(0,7); }
+function afterData(){
+  generateRecurring();
+  render();
+}
+function generateRecurring(){
+  const now = new Date();
+  const curY = now.getFullYear(), curM = now.getMonth(); // 0-based
+  for(const tpl of Object.values(state.recurring)){
+    if(!tpl.active) continue;
+    const start = tpl.startDate ? new Date(tpl.startDate+'T00:00:00') : now;
+    let y=start.getFullYear(), m=start.getMonth();
+    // don't start more than ~10yrs before now, so the guard stays a safety valve (not a forward cap)
+    const MAX_BACK=120, minIdx=(curY*12+curM)-(MAX_BACK-1), startIdx=y*12+m;
+    if(startIdx<minIdx){ y=Math.floor(minIdx/12); m=minIdx%12; }
+    let guard=0;
+    while((y<curY || (y===curY && m<=curM)) && guard++<MAX_BACK){
+      const dom = Math.min(Math.max(Math.floor(tpl.dayOfMonth)||1, 1), 28);
+      const dateStr = `${y}-${String(m+1).padStart(2,'0')}-${String(dom).padStart(2,'0')}`;
+      const id = `rec_${tpl.id}_${y}${String(m+1).padStart(2,'0')}`;
+      if(!state.transactions[id] && !(state.skipRecurring && state.skipRecurring[id]) && new Date(dateStr+'T00:00:00') <= now){
+        const shares = computeShares(tpl.amount, tpl.split, tpl.paidBy);
+        const txn = {
+          id, type:'expense', description:tpl.description, amount:tpl.amount,
+          category:tpl.category, date:dateStr, paidBy:tpl.paidBy,
+          split:tpl.split, shares, hasReceipt:false, thumb:null,
+          recurringId:tpl.id, createdBy:'system', createdAt:Date.now(), updatedAt:Date.now()
+        };
+        state.transactions[id]=txn;
+        if(isCloud()){ try{ cloud.fs.setDoc(hdoc('transactions',id), JSON.parse(JSON.stringify(txn))); }catch(e){} }
+        else localPersist();
+      }
+      m++; if(m>11){m=0;y++;}
+    }
+  }
+}
+
+/* ================================================================
+   IMAGE compression for receipts
+   ================================================================ */
+function fileToImage(file){
+  return new Promise((res,rej)=>{
+    const r=new FileReader();
+    r.onload=()=>{ const img=new Image(); img.onload=()=>res(img); img.onerror=rej; img.src=r.result; };
+    r.onerror=rej; r.readAsDataURL(file);
+  });
+}
+function scaleCanvas(img, maxDim, quality){
+  let {width:w, height:hh}=img;
+  const scale=Math.min(1, maxDim/Math.max(w,hh));
+  w=Math.round(w*scale); hh=Math.round(hh*scale);
+  const c=document.createElement('canvas'); c.width=w; c.height=hh;
+  const ctx=c.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,hh);
+  ctx.drawImage(img,0,0,w,hh);
+  return c.toDataURL('image/jpeg', quality);
+}
+async function processReceipt(file){
+  const img = await fileToImage(file);
+  const thumb = scaleCanvas(img, 200, 0.6);
+  // full: shrink until comfortably under Firestore's 1MB doc limit
+  let full = scaleCanvas(img, 1500, 0.72);
+  const dims=[1500,1200,900], qs=[0.72,0.6,0.5];
+  let i=0;
+  while(full.length>720000 && i<dims.length){ full=scaleCanvas(img, dims[i], qs[i]); i++; }
+  return {thumb, full};
+}
+
+/* ================================================================
+   TOAST + confirm
+   ================================================================ */
+let toastT;
+function toast(msg){
+  const t=$('#toast'); t.textContent=msg; t.classList.add('show');
+  clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'), 2600);
+}
+
+/* ================================================================
+   ONBOARDING
+   ================================================================ */
+function renderOnboarding(){
+  app.innerHTML='';
+  const nameMe=h('input',{class:'input',placeholder:'e.g. Aaron',value:config?.members?.[0]?.name||''});
+  const namePartner=h('input',{class:'input',placeholder:"e.g. Sarah",value:config?.members?.[1]?.name||''});
+  const currency=h('select',{class:'input'},
+    ...['CAD','USD','EUR','GBP','AUD','INR','JPY'].map(c=>h('option',{value:c, selected:(config?.currency||'CAD')===c}, c)));
+
+  let syncMode = isCloud()?'cloud':'local';
+  const fbInput=h('textarea',{class:'input',placeholder:'Paste the firebaseConfig object from your Firebase project here',style:{minHeight:'120px',fontFamily:'var(--mono)',fontSize:'12px'}});
+  const hhInput=h('input',{class:'input',placeholder:'e.g. sarah-and-aaron-4821',value:config?.firebase?.household||''});
+  if(config?.firebase) fbInput.value = JSON.stringify(config.firebase.config,null,2);
+
+  const cloudFields=h('div',{class:syncMode==='cloud'?'':'hide'},
+    h('div',{class:'field'}, h('label',{},'Firebase config'), fbInput),
+    h('div',{class:'field'}, h('label',{},'Shared household code'),
+      hhInput,
+      h('div',{style:{fontSize:'12px',color:'var(--muted-txt)',marginTop:'6px'}},'Both of you enter the exact same code. Make it long & private — anyone with the code and app can see your data.')
+    ),
+    h('details',{class:'help'},
+      h('summary',{html:icon(ICONS.info)+' How do I get the Firebase config? (~10 min, free)'}),
+      h('ol',{},
+        h('li',{html:'Go to <code>console.firebase.google.com</code> → <b>Add project</b> (any name). Skip Google Analytics.'}),
+        h('li',{html:'In the project, click the <b>&lt;/&gt;</b> (web) icon to “Add app”. Register it — you\'ll be shown a <code>firebaseConfig = {…}</code> block. Copy the object and paste it above.'}),
+        h('li',{html:'Left menu → <b>Build → Firestore Database → Create database</b> → Start in <b>production mode</b>.'}),
+        h('li',{html:'Left menu → <b>Build → Authentication → Get started → Sign-in method → Anonymous → Enable</b>.'}),
+        h('li',{html:'Firestore → <b>Rules</b> tab: paste the rules from the included <code>firestore.rules</code> file and Publish.'}),
+        h('li',{html:'Send your partner this file + the same household code. Done — edits sync live.'})
+      )
+    )
+  );
+
+  const seg=h('div',{class:'seg'},
+    h('button',{class:syncMode==='local'?'on':'',onclick:()=>{syncMode='local';paint();}},'📱 Just this device'),
+    h('button',{class:syncMode==='cloud'?'on':'',onclick:()=>{syncMode='cloud';paint();}},'☁️ Sync both phones')
+  );
+  function paint(){
+    seg.children[0].className=syncMode==='local'?'on':'';
+    seg.children[1].className=syncMode==='cloud'?'on':'';
+    cloudFields.className=syncMode==='cloud'?'':'hide';
+  }
+
+  const wrap=h('div',{class:'onb'},
+    h('div',{class:'logo'}, h('div',{class:'mark'},'◑'), 'Tally'),
+    h('div',{class:'lede'},'A warm little ledger for two. Track shared bills, snap receipts, split however you like, and always know who owes who.'),
+    h('div',{class:'step-card'},
+      h('h3',{}, h('span',{class:'num'},'1'),'Who\'s sharing?'),
+      h('div',{class:'row2'},
+        h('div',{class:'field'}, h('label',{},'You'), nameMe),
+        h('div',{class:'field'}, h('label',{},'Your partner'), namePartner)
+      ),
+      h('div',{class:'field'}, h('label',{},'Currency'), currency)
+    ),
+    h('div',{class:'step-card'},
+      h('h3',{}, h('span',{class:'num'},'2'),'How should it sync?'),
+      seg,
+      h('div',{style:{height:'14px'}}),
+      cloudFields
+    ),
+    h('button',{class:'btn btn-primary',style:{width:'100%',padding:'15px'},onclick:async()=>{
+      const n1=nameMe.value.trim()||'Me', n2=namePartner.value.trim()||'Partner';
+      const newCfg={ members:[{id:'m1',name:n1},{id:'m2',name:n2}], currency:currency.value, deviceMemberId:(config&&config.deviceMemberId)||null, firebase:null };
+      if(syncMode==='cloud'){
+        let parsed;
+        try{
+          let raw=fbInput.value
+            .replace(/\/\/.*$/gm,'')                 // strip // comments the console emits
+            .replace(/\/\*[\s\S]*?\*\//g,'')          // strip /* */ comments
+            .replace(/^\s*(?:const|let|var)\s+firebaseConfig\s*=\s*/m,'')
+            .replace(/^\s*window\.firebaseConfig\s*=\s*/m,'')
+            .trim().replace(/;\s*$/,'').trim();
+          parsed = JSON.parse(raw.replace(/([{,]\s*)([A-Za-z0-9_$]+)\s*:/g,'$1"$2":').replace(/'([^']*)'/g,'"$1"'));
+        }catch(e){ toast('Couldn\'t read that Firebase config — paste the whole { … } block.'); return; }
+        if(!parsed.apiKey||!parsed.projectId){ toast('That config is missing apiKey/projectId.'); return; }
+        const hh=hhInput.value.trim();
+        if(hh.length<6){ toast('Pick a household code of at least 6 characters.'); return; }
+        newCfg.firebase={config:parsed, household:hh};
+      }
+      config=newCfg; saveConfig();
+      await boot(true);
+    }},'Continue')
+  );
+  app.append(wrap);
+}
+
+/* who-am-I picker (per device) */
+function renderPersonPicker(){
+  app.innerHTML='';
+  const ms=members();
+  app.append(h('div',{class:'onb'},
+    h('div',{class:'logo'}, h('div',{class:'mark'},'◑'),'Tally'),
+    h('div',{class:'lede'},'Who\'s using this device? (You can switch anytime in Settings.)'),
+    h('div',{class:'step-card'},
+      h('div',{class:'payer'},
+        ...ms.map((m,i)=>h('button',{onclick:()=>{config.deviceMemberId=m.id; saveConfig(); render();}},
+          h('span',{class:'av',style:{background:AV_COLORS[i]}}, initials(m.name)),
+          m.name))
+      )
+    )
+  ));
+}
+
+/* ================================================================
+   MAIN RENDER
+   ================================================================ */
+function render(){
+  if(!config){ renderOnboarding(); return; }
+  if(!config.deviceMemberId){ renderPersonPicker(); return; }
+  app.innerHTML='';
+  app.append(topbar());
+  const main=h('main',{});
+  if(currentScreen==='home') main.append(screenHome());
+  else if(currentScreen==='list') main.append(screenList());
+  else if(currentScreen==='summary') main.append(screenSummary());
+  else if(currentScreen==='recurring') main.append(screenRecurring());
+  else if(currentScreen==='settings') main.append(screenSettings());
+  app.append(main);
+  app.append(navbar());
+}
+function go(s){ currentScreen=s; render(); window.scrollTo(0,0); }
+
+function topbar(){
+  const me=memberName(config.deviceMemberId);
+  return h('div',{class:'topbar'},
+    h('div',{class:'brand'}, h('div',{class:'mark'},'◑'), h('b',{},'Tally')),
+    h('button',{class:'who',onclick:()=>go('settings')},
+      h('span',{class:'dot'}), me, h('span',{html:icon(ICONS.gear)}))
+  );
+}
+function navbar(){
+  const item=(id,ico,label)=>h('a',{class:currentScreen===id?'on':'',onclick:()=>go(id)},
+    h('span',{html:icon(ico)}), label);
+  return h('nav',{class:'nav'}, h('div',{class:'nav-inner'},
+    item('home',ICONS.home,'Home'),
+    item('summary',ICONS.chart,'Summary'),
+    h('button',{class:'fab',onclick:()=>openExpenseSheet()}, h('span',{html:icon(ICONS.plus)})),
+    item('recurring',ICONS.repeat,'Recurring'),
+    item('settings',ICONS.gear,'Settings')
+  ));
+}
+
+/* ---------- HOME ---------- */
+function balanceHero(){
+  const bal=computeBalances();
+  const meId=config.deviceMemberId, myNet=bal[meId];
+  let cls,amountTxt,sub;
+  if(Math.abs(myNet)<0.005){
+    cls='even'; amountTxt=money(0); sub=h('span',{},'You\'re all settled up ✨');
+  } else if(myNet>0){
+    cls='owed'; amountTxt=money(myNet);
+    sub=h('span',{}, h('b',{},memberName(otherId(meId))),' owes you');
+  } else {
+    cls='owe'; amountTxt=money(-myNet);
+    sub=h('span',{},'You owe ', h('b',{},memberName(otherId(meId))));
+  }
+  return h('div',{class:'hero'},
+    h('div',{class:'eyebrow'},'Current balance'),
+    h('div',{class:'amount '+cls}, amountTxt),
+    h('div',{class:'sub'}, sub),
+    h('div',{class:'hero-actions'},
+      h('button',{class:'btn btn-primary',onclick:()=>openExpenseSheet()}, h('span',{html:icon(ICONS.plus)}),'Add expense'),
+      h('button',{class:'btn btn-forest',onclick:()=>openSettleSheet()}, h('span',{html:icon(ICONS.check)}),'Settle up')
+    )
+  );
+}
+function screenHome(){
+  const s=h('div',{class:'screen'});
+  s.append(balanceHero());
+  if(isCloud()) {} else {
+    s.append(h('div',{class:'banner',style:{marginTop:'14px'},html:icon(ICONS.info)+' <span>Local mode — data lives on this device only. Turn on sync in Settings to share with '+escapeHtml(memberName(otherId(config.deviceMemberId)))+'.</span>'}));
+  }
+  const txns=sortedTxns();
+  s.append(h('div',{class:'sec-head'}, h('h2',{},'Recent'),
+    txns.length>8?h('button',{class:'link',onclick:()=>go('list')},'See all'):null));
+  if(!txns.length){
+    s.append(h('div',{class:'empty'}, h('div',{class:'big'},'🧾'),
+      h('h3',{style:{fontSize:'18px'}},'No expenses yet'),
+      h('p',{},'Tap the + to add your first shared bill.')));
+  } else {
+    txns.slice(0,8).forEach((t,i)=>s.append(txRow(t,i)));
+  }
+  return s;
+}
+function sortedTxns(){
+  return Object.values(state.transactions).sort((a,b)=> (b.date||'').localeCompare(a.date||'') || (b.createdAt||0)-(a.createdAt||0));
+}
+function txRow(t,i){
+  const meId=config.deviceMemberId;
+  if(t.type==='settlement'){
+    const dir = t.from===meId ? `You paid ${memberName(t.to)}` : `${memberName(t.from)} paid you`;
+    return h('div',{class:'tx settlement',style:{animationDelay:(i*0.03)+'s'},onclick:()=>openSettleSheet(t)},
+      h('div',{class:'ic'},'🤝'),
+      h('div',{class:'meta'}, h('div',{class:'t'},'Settle up'),
+        h('div',{class:'s'}, dir+' · '+fmtDate(t.date))),
+      h('div',{class:'amt'}, h('div',{class:'n'}, money(t.amount)), h('div',{class:'l'},'payment'))
+    );
+  }
+  const c=catOf(t.category);
+  const sh=t.shares||computeShares(t.amount,t.split,t.paidBy);
+  const myShare=sh[meId]||0;
+  const iPaid=t.paidBy===meId;
+  const delta = iPaid ? (t.amount-myShare) : -myShare;  // + they owe me, - I owe
+  const payerTxt = iPaid ? 'You paid' : memberName(t.paidBy)+' paid';
+  return h('div',{class:'tx',style:{animationDelay:(i*0.03)+'s'},onclick:()=>openExpenseSheet(t)},
+    h('div',{class:'ic'}, c.em),
+    h('div',{class:'meta'},
+      h('div',{class:'t'}, t.description||c.label),
+      h('div',{class:'s'},
+        payerTxt+' '+money(t.amount)+' · '+fmtDate(t.date),
+        (t.hasReceipt||t.thumb)?h('span',{class:'clip',html:icon(ICONS.clip)}):null)
+    ),
+    h('div',{class:'amt'},
+      h('div',{class:'n '+(delta>0.005?'pos':delta<-0.005?'neg':'')}, (Math.abs(delta)<0.005?money(0):money(Math.abs(delta),false))),
+      h('div',{class:'l'}, delta>0.005?'you lent':delta<-0.005?'you owe':'even'))
+  );
+}
+
+/* ---------- LIST (grouped by month) ---------- */
+function screenList(){
+  const s=h('div',{class:'screen'});
+  s.append(h('div',{class:'sec-head'}, h('h2',{},'All activity')));
+  const txns=sortedTxns();
+  if(!txns.length){ s.append(h('div',{class:'empty'}, h('div',{class:'big'},'🧾'), h('p',{},'Nothing here yet.'))); return s; }
+  let curYM=null;
+  txns.forEach((t,i)=>{
+    const ym=ymOf(t.date||'');
+    if(ym!==curYM){
+      curYM=ym;
+      const monthTotal=txns.filter(x=>x.type!=='settlement'&&ymOf(x.date||'')===ym).reduce((a,x)=>a+x.amount,0);
+      s.append(h('div',{class:'month-label'}, h('span',{},fmtMonth(ym)), h('span',{},money(monthTotal)+' spent')));
+    }
+    s.append(txRow(t,i));
+  });
+  return s;
+}
+
+/* ---------- SUMMARY ---------- */
+function screenSummary(){
+  const s=h('div',{class:'screen'});
+  if(!summaryMonth) summaryMonth = ymOf(todayStr());
+  s.append(h('div',{class:'sec-head'}, h('h2',{},'Monthly summary')));
+  s.append(h('div',{class:'monthnav'},
+    h('button',{onclick:()=>{summaryMonth=shiftMonth(summaryMonth,-1);render();},html:icon(ICONS.left)}),
+    h('div',{class:'lbl'}, fmtMonth(summaryMonth)),
+    h('button',{onclick:()=>{summaryMonth=shiftMonth(summaryMonth,1);render();},html:icon(ICONS.right)})
+  ));
+  const exp=Object.values(state.transactions).filter(t=>t.type!=='settlement'&&ymOf(t.date||'')===summaryMonth);
+  const total=exp.reduce((a,t)=>a+t.amount,0);
+  const ms=members();
+  const paid={m1:0,m2:0}, owed={m1:0,m2:0};
+  exp.forEach(t=>{ paid[t.paidBy]+=t.amount; const sh=t.shares||computeShares(t.amount,t.split,t.paidBy); ms.forEach(m=>owed[m.id]+=(sh[m.id]||0)); });
+
+  s.append(h('div',{class:'stat-grid'},
+    h('div',{class:'stat'}, h('div',{class:'k'},'Total spent'), h('div',{class:'v'}, money(total))),
+    h('div',{class:'stat'}, h('div',{class:'k'},'Expenses'), h('div',{class:'v'}, String(exp.length),' ',h('small',{},'entries')))
+  ));
+
+  s.append(h('div',{class:'sec-head'}, h('h3',{style:{fontSize:'16px'}},'Each person\'s share')));
+  s.append(h('div',{class:'who-split'},
+    ...ms.map((m,i)=>h('div',{class:'c'},
+      h('div',{class:'nm'}, m.name+(m.id===config.deviceMemberId?' (you)':'')),
+      h('div',{class:'vv'}, money(owed[m.id])),
+      h('div',{style:{fontSize:'11.5px',color:'var(--muted-txt)',marginTop:'4px'}}, 'paid '+money(paid[m.id]))
+    ))
+  ));
+
+  // categories
+  const byCat={};
+  exp.forEach(t=>{ byCat[t.category]=(byCat[t.category]||0)+t.amount; });
+  const cats=Object.entries(byCat).sort((a,b)=>b[1]-a[1]);
+  s.append(h('div',{class:'sec-head'}, h('h3',{style:{fontSize:'16px'}},'By category')));
+  if(!cats.length){ s.append(h('div',{class:'empty'}, h('p',{},'No expenses in '+fmtMonth(summaryMonth)+'.'))); return s; }
+  const max=cats[0][1]||1;
+  cats.forEach(([k,v])=>{
+    const c=catOf(k);
+    s.append(h('div',{class:'catbar'},
+      h('div',{class:'top'},
+        h('div',{class:'nm'}, h('span',{},c.em), c.label),
+        h('div',{class:'vv'}, money(v)+' · '+Math.round(v/total*100)+'%')),
+      h('div',{class:'track'}, h('div',{class:'fill',style:{width:(v/max*100)+'%'}}))
+    ));
+  });
+  return s;
+}
+
+/* ---------- RECURRING ---------- */
+function screenRecurring(){
+  const s=h('div',{class:'screen'});
+  s.append(h('div',{class:'sec-head'}, h('h2',{},'Recurring bills'),
+    h('button',{class:'link',onclick:()=>openRecurringSheet()},'+ New')));
+  const list=Object.values(state.recurring).sort((a,b)=>(a.description||'').localeCompare(b.description||''));
+  if(!list.length){
+    s.append(h('div',{class:'empty'}, h('div',{class:'big'},'🔁'),
+      h('h3',{style:{fontSize:'18px'}},'No recurring bills'),
+      h('p',{},'Add rent, subscriptions, or any bill that repeats monthly — they\'ll be added automatically.')));
+    return s;
+  }
+  list.forEach(t=>{
+    const c=catOf(t.category);
+    s.append(h('div',{class:'rec'},
+      h('div',{class:'ic tx',style:{width:'42px',height:'42px',borderRadius:'11px',display:'grid',placeItems:'center',background:'var(--paper-2)',border:'1px solid var(--line)',fontSize:'20px',padding:0,margin:0}}, c.em),
+      h('div',{class:'meta',onclick:()=>openRecurringSheet(t)},
+        h('div',{class:'t'}, t.description||c.label),
+        h('div',{class:'s'}, money(t.amount)+' · monthly on day '+(t.dayOfMonth||1)+' · '+memberName(t.paidBy)+' pays')),
+      h('div',{class:'switch'+(t.active?' on':''),onclick:()=>{t.active=!t.active; persistRecurring(t); toast(t.active?'Resumed':'Paused');}})
+    ));
+  });
+  s.append(h('div',{style:{fontSize:'12.5px',color:'var(--muted-txt)',textAlign:'center',marginTop:'10px'}},
+    'Instances are created up to today. Tap a bill to edit; toggle to pause.'));
+  return s;
+}
+
+/* ---------- SETTINGS ---------- */
+function screenSettings(){
+  const s=h('div',{class:'screen'});
+  s.append(h('div',{class:'sec-head'}, h('h2',{},'Settings')));
+  const ms=members();
+  s.append(h('div',{class:'card-list'},
+    h('div',{class:'set-row'}, h('div',{class:'lbl'},'Sync', h('small',{}, isCloud()?('Cloud · household “'+config.firebase.household+'”'):'This device only')),
+      h('span',{class:'pill '+(isCloud()?'cloud':'local')}, isCloud()?'Cloud':'Local')),
+    h('div',{class:'set-row tap',onclick:()=>{ renderOnboarding(); },},
+      h('div',{class:'lbl'}, isCloud()?'Manage sync / Firebase':'Turn on cross-device sync', h('small',{},'Edit names, currency & Firebase config')),
+      h('span',{html:icon(ICONS.right),style:{color:'var(--muted-txt)'}})),
+  ));
+  s.append(h('div',{class:'card-list'},
+    ...ms.map((m,i)=>h('div',{class:'set-row'},
+      h('span',{class:'av',style:{width:'30px',height:'30px',borderRadius:'50%',display:'grid',placeItems:'center',color:'#fff',fontFamily:'var(--serif)',fontWeight:'700',background:AV_COLORS[i]}}, initials(m.name)),
+      h('div',{class:'lbl'}, m.name, h('small',{}, m.id===config.deviceMemberId?'This is you on this device':' ')),
+      m.id===config.deviceMemberId?h('span',{class:'pill cloud'},'You'):
+        h('button',{class:'btn btn-ghost btn-sm',onclick:()=>{config.deviceMemberId=m.id;saveConfig();toast('Switched to '+m.name);render();}},'I\'m '+m.name)
+    )),
+    h('div',{class:'set-row'}, h('div',{class:'lbl'},'Currency'), h('span',{class:'val'}, (state.meta?.currency||config.currency)))
+  ));
+  s.append(h('div',{class:'card-list'},
+    h('div',{class:'set-row tap',onclick:exportData}, h('div',{class:'lbl'},'Export backup', h('small',{},'Download all data as a JSON file')), h('span',{html:icon(ICONS.down),style:{color:'var(--muted-txt)'}})),
+    h('div',{class:'set-row tap',onclick:importData}, h('div',{class:'lbl'},'Import backup', h('small',{},'Restore from a JSON file')), h('span',{html:icon(ICONS.right),style:{color:'var(--muted-txt)'}}))
+  ));
+  s.append(h('div',{class:'card-list'},
+    h('div',{class:'set-row tap',onclick:()=>{
+      if(confirm('Reset this app on THIS device? Your synced cloud data is kept — this only clears local settings so you can re-onboard.')){
+        localStorage.removeItem(CFG_KEY); localStorage.removeItem(LOCAL_DATA_KEY); localStorage.removeItem(LOCAL_RCPT_KEY);
+        location.reload();
+      }
+    }}, h('div',{class:'lbl',style:{color:'var(--clay-deep)'}},'Reset this device', h('small',{},'Clears local settings & starts onboarding')),
+      h('span',{html:icon(ICONS.trash),style:{color:'var(--clay)'}}))
+  ));
+  s.append(h('div',{style:{textAlign:'center',color:'var(--muted-txt)',fontSize:'12px',marginTop:'10px'}},'Tally · made with care ◑'));
+  return s;
+}
+
+/* ================================================================
+   EXPENSE SHEET (add / edit)
+   ================================================================ */
+function openExpenseSheet(existing){
+  const editing=!!existing;
+  const ms=members();
+  const meId=config.deviceMemberId;
+  const data = existing ? JSON.parse(JSON.stringify(existing)) : {
+    id:'tx_'+rid(), type:'expense', description:'', amount:0, category:'groceries',
+    date:todayStr(), paidBy:meId, split:{type:'equal'}, hasReceipt:false, thumb:null,
+    createdBy:meId, createdAt:Date.now()
+  };
+  let newReceipt=undefined;   // undefined=untouched, null=removed, string=new full
+  let existingThumb = data.thumb||null;
+
+  const amountI=h('input',{class:'input',type:'text',inputmode:'decimal',placeholder:'0.00',value:data.amount?String(data.amount):''});
+  const descI=h('input',{class:'input',placeholder:'What was it for?',value:data.description||''});
+  const dateI=h('input',{class:'input',type:'date',value:data.date});
+
+  // category chips
+  const catWrap=h('div',{class:'chips'});
+  function paintCats(){ [...catWrap.children].forEach((ch,idx)=>ch.className='chip'+(CATEGORIES[idx].k===data.category?' on':'')); }
+  CATEGORIES.forEach(c=>catWrap.append(h('button',{class:'chip',type:'button',onclick:()=>{data.category=c.k;paintCats();}}, h('span',{class:'em'},c.em), c.label)));
+  paintCats();
+
+  // payer
+  const payerWrap=h('div',{class:'payer'});
+  function paintPayer(){ [...payerWrap.children].forEach((b,idx)=>b.className=(ms[idx].id===data.paidBy?'on':'')); }
+  ms.forEach((m,i)=>payerWrap.append(h('button',{type:'button',onclick:()=>{data.paidBy=m.id; paintPayer(); paintSplit();}},
+    h('span',{class:'av',style:{background:AV_COLORS[i]}}, initials(m.name)), (m.id===meId?'You':m.name))));
+  paintPayer();
+
+  // split
+  if(!data.split) data.split={type:'equal'};
+  const splitSeg=h('div',{class:'seg clay'});
+  const SPLITS=[['equal','Equal'],['ratio','Ratio'],['exact','Exact'],['full','One pays']];
+  SPLITS.forEach(([k,l])=>splitSeg.append(h('button',{type:'button',class:(data.split.type===k?'on':''),onclick:()=>{data.split.type=k;paintSplit();}},l)));
+  const splitBody=h('div',{style:{marginTop:'12px'}});
+  const splitHint=h('div',{class:'split-hint'});
+
+  function curAmount(){ return parseAmount(amountI.value)||0; }
+  function paintSplit(){
+    [...splitSeg.children].forEach((b,idx)=>b.className=(SPLITS[idx][0]===data.split.type?'on':''));
+    splitBody.innerHTML=''; splitHint.textContent=''; splitHint.className='split-hint';
+    const amt=curAmount();
+    if(data.split.type==='equal'){
+      const sh=computeShares(amt,{type:'equal'},data.paidBy);
+      splitBody.append(h('div',{class:'split-box'},
+        ...ms.map(m=>h('div',{class:'split-row'}, h('div',{class:'nm'}, m.id===meId?'You':m.name), h('div',{class:'mono'}, money(sh[m.id]))))));
+      splitHint.textContent='Split evenly, 50 / 50';
+    } else if(data.split.type==='full'){
+      if(!data.split.owedBy) data.split.owedBy=otherId(data.paidBy);
+      const box=h('div',{class:'split-box'});
+      box.append(h('div',{style:{fontSize:'13px',color:'var(--muted-txt)',marginBottom:'10px'}},'Who is this expense fully for?'));
+      const pk=h('div',{class:'payer'});
+      ms.forEach((m,i)=>pk.append(h('button',{type:'button',class:(data.split.owedBy===m.id?'on':''),onclick:()=>{data.split.owedBy=m.id;paintSplit();}},
+        h('span',{class:'av',style:{background:AV_COLORS[i]}},initials(m.name)), (m.id===meId?'You':m.name))));
+      box.append(pk); splitBody.append(box);
+      splitHint.textContent=memberName(data.split.owedBy)+' owes the full '+money(amt);
+    } else if(data.split.type==='ratio'){
+      if(!data.split.weights) data.split.weights={m1:50,m2:50};
+      const w=data.split.weights;
+      const range=h('input',{type:'range',min:'0',max:'100',step:'5',value:String(w.m1)});
+      const legend=h('div',{class:'ratio-legend'});
+      const sh=()=>computeShares(amt,{type:'ratio',weights:w},data.paidBy);
+      function relabel(){ const s=sh();
+        legend.innerHTML='';
+        legend.append(h('span',{}, (ms[0].id===meId?'You':ms[0].name)+' '+w.m1+'% · '+money(s.m1)),
+                      h('span',{}, (ms[1].id===meId?'You':ms[1].name)+' '+w.m2+'% · '+money(s.m2))); }
+      range.addEventListener('input',()=>{ w.m1=Number(range.value); w.m2=100-w.m1; relabel(); });
+      relabel();
+      splitBody.append(h('div',{class:'split-box'}, h('div',{class:'slider-wrap'}, range), legend));
+    } else if(data.split.type==='exact'){
+      if(!data.split.exact) data.split.exact={m1:'',m2:''};
+      const box=h('div',{class:'split-box'});
+      const inputs={};
+      ms.forEach(m=>{
+        const inp=h('input',{class:'input',type:'text',inputmode:'decimal',placeholder:'0.00',value:(data.split.exact[m.id]??'')});
+        inputs[m.id]=inp;
+        inp.addEventListener('input',()=>{ data.split.exact[m.id]=inp.value; checkExact(); });
+        box.append(h('div',{class:'split-row'}, h('div',{class:'nm'}, m.id===meId?'You':m.name), h('div',{class:'in'}, inp)));
+      });
+      splitBody.append(box);
+      function checkExact(){
+        const sum=ms.reduce((a,m)=>a+(parseAmount(data.split.exact[m.id])||0),0);
+        const diff=amt-sum;
+        if(Math.abs(toC(sum)-toC(amt))===0){ splitHint.textContent='Adds up to '+money(amt)+' ✓'; splitHint.className='split-hint'; }
+        else { splitHint.textContent=(diff>0?money(diff)+' left to assign':money(-diff)+' over'); splitHint.className='split-hint bad'; }
+      }
+      checkExact();
+    }
+    splitBody.append(splitHint);
+  }
+  amountI.addEventListener('input',()=>paintSplit());
+
+  // receipt
+  const fileI=h('input',{type:'file',accept:'image/*',capture:'environment',style:{display:'none'}});
+  const receiptZone=h('div',{});
+  function paintReceipt(){
+    receiptZone.innerHTML='';
+    const showThumb = newReceipt!==null && (newReceipt || existingThumb || (editing&&data.hasReceipt));
+    if(newReceipt){ // freshly attached (full data url available as thumb-ish)
+      receiptZone.append(thumbNode(newReceipt));
+    } else if(showThumb && (existingThumb || data.hasReceipt)){
+      receiptZone.append(thumbNode(existingThumb||null, data.id));
+    } else {
+      receiptZone.append(h('div',{class:'receipt-drop',onclick:()=>fileI.click()},
+        h('span',{html:icon(ICONS.cam)}), h('div',{class:'txt'}, h('b',{},'Add receipt photo'), h('span',{},'Snap or upload — auto-compressed'))));
+    }
+  }
+  function thumbNode(src, txnId){
+    const wrap=h('div',{class:'receipt-thumb'});
+    const img=h('img',{alt:'receipt'});
+    if(src) img.src=src;
+    else if(txnId){ img.src=''; fetchReceipt(txnId).then(d=>{ if(d) img.src=d; else img.replaceWith(h('div',{style:{padding:'20px',textAlign:'center',color:'var(--muted-txt)'}},'📎 Receipt attached')); }); }
+    wrap.append(img);
+    wrap.append(h('button',{class:'rm',type:'button',onclick:(e)=>{e.stopPropagation(); newReceipt=null; existingThumb=null; data.hasReceipt=false; data.thumb=null; paintReceipt();}, html:icon(ICONS.x)}));
+    wrap.addEventListener('click',()=>{ const s=img.getAttribute('src'); if(s) openViewer(s); });
+    return wrap;
+  }
+  fileI.addEventListener('change',async()=>{
+    const f=fileI.files[0]; if(!f) return;
+    toast('Compressing photo…');
+    try{ const {thumb,full}=await processReceipt(f); newReceipt=full; existingThumb=thumb; data.thumb=thumb; data.hasReceipt=true; paintReceipt(); }
+    catch(e){ toast('Couldn\'t read that image.'); }
+  });
+  paintReceipt();
+  paintSplit();
+
+  const sheet=buildSheet(editing?'Edit expense':'Add expense', [
+    h('div',{class:'field amount-field'}, h('label',{},'Amount'), h('span',{class:'cur'},'$'), amountI),
+    h('div',{class:'field'}, h('label',{},'Description'), descI),
+    h('div',{class:'row2'},
+      h('div',{class:'field'}, h('label',{},'Date'), dateI),
+      h('div',{class:'field'}, h('label',{},'Paid by'), payerWrap)),
+    h('div',{class:'field'}, h('label',{},'Category'), catWrap),
+    h('div',{class:'field'}, h('label',{},'Split'), splitSeg, splitBody),
+    h('div',{class:'field'}, h('label',{},'Receipt'), fileI, receiptZone),
+  ], async()=>{
+    const amt=parseAmount(amountI.value);
+    if(!amt||amt<=0){ toast('Enter an amount greater than 0.'); return false; }
+    if(data.split.type==='exact'){
+      const amtC=toC(amt);
+      const sumC=ms.reduce((a,m)=>a+toC(parseAmount(data.split.exact?.[m.id])||0),0);
+      if(sumC!==amtC){ toast('Exact split must add up to '+money(amt)+'.'); return false; }
+      data.split.exact={m1:parseAmount(data.split.exact.m1)||0, m2:parseAmount(data.split.exact.m2)||0};
+    }
+    data.amount=Math.round(amt*100)/100;
+    data.description=descI.value.trim();
+    data.date=dateI.value||todayStr();
+    data.shares=computeShares(data.amount, data.split, data.paidBy);
+    data.updatedAt=Date.now();
+    await persistTransaction(data, newReceipt);
+    toast(editing?'Saved':'Expense added');
+    return true;
+  }, editing?async()=>{
+    if(confirm('Delete this expense?')){ await removeTransaction(data.id); toast('Deleted'); return true; }
+    return false;
+  }:null);
+}
+
+/* ================================================================
+   SETTLE UP sheet
+   ================================================================ */
+function openSettleSheet(existing){
+  const editing=!!existing;
+  const ms=members();
+  const meId=config.deviceMemberId;
+  const bal=computeBalances();
+  // default: whoever owes pays the other the outstanding amount
+  let defFrom=meId, defTo=otherId(meId), defAmt=0;
+  if(bal[meId]<-0.005){ defFrom=meId; defTo=otherId(meId); defAmt=-bal[meId]; }
+  else if(bal[meId]>0.005){ defFrom=otherId(meId); defTo=meId; defAmt=bal[meId]; }
+  const data = existing ? JSON.parse(JSON.stringify(existing)) : {
+    id:'st_'+rid(), type:'settlement', from:defFrom, to:defTo,
+    amount:Math.round(defAmt*100)/100, date:todayStr(), note:'', createdBy:meId, createdAt:Date.now()
+  };
+  const amountI=h('input',{class:'input',type:'text',inputmode:'decimal',value:data.amount?String(data.amount):''});
+  const dateI=h('input',{class:'input',type:'date',value:data.date});
+  const noteI=h('input',{class:'input',placeholder:'e.g. e-transfer',value:data.note||''});
+
+  const dir=h('div',{class:'split-box',style:{textAlign:'center'}});
+  function paintDir(){
+    dir.innerHTML='';
+    dir.append(
+      h('div',{style:{display:'flex',alignItems:'center',justifyContent:'center',gap:'12px',flexWrap:'wrap'}},
+        h('b',{}, data.from===meId?'You':memberName(data.from)),
+        h('span',{html:icon(ICONS.right),style:{color:'var(--forest)'}}),
+        h('span',{style:{fontFamily:'var(--serif)',fontSize:'18px'}}, 'pays'),
+        h('span',{html:icon(ICONS.right),style:{color:'var(--forest)'}}),
+        h('b',{}, data.to===meId?'You':memberName(data.to))),
+      h('button',{class:'btn btn-ghost btn-sm',type:'button',style:{marginTop:'12px'},onclick:()=>{const f=data.from;data.from=data.to;data.to=f;paintDir();}},
+        h('span',{html:icon(ICONS.swap)}),'Switch direction')
+    );
+  }
+  paintDir();
+
+  buildSheet(editing?'Edit payment':'Settle up', [
+    h('div',{class:'field'}, h('label',{},'Payment'), dir),
+    h('div',{class:'field amount-field'}, h('label',{},'Amount'), h('span',{class:'cur'},'$'), amountI),
+    h('div',{class:'row2'},
+      h('div',{class:'field'}, h('label',{},'Date'), dateI),
+      h('div',{class:'field'}, h('label',{},'Note'), noteI)),
+  ], async()=>{
+    const amt=parseAmount(amountI.value);
+    if(!amt||amt<=0){ toast('Enter the amount paid.'); return false; }
+    data.amount=Math.round(amt*100)/100; data.date=dateI.value||todayStr(); data.note=noteI.value.trim(); data.updatedAt=Date.now();
+    await persistTransaction(data);
+    toast('Payment recorded');
+    return true;
+  }, editing?async()=>{ if(confirm('Delete this payment?')){ await removeTransaction(data.id); toast('Deleted'); return true; } return false; }:null);
+}
+
+/* ================================================================
+   RECURRING sheet
+   ================================================================ */
+function openRecurringSheet(existing){
+  const editing=!!existing;
+  const ms=members(); const meId=config.deviceMemberId;
+  const data=existing?JSON.parse(JSON.stringify(existing)):{
+    id:'rc_'+rid(), description:'', amount:0, category:'rent', paidBy:meId,
+    split:{type:'equal'}, dayOfMonth:1, startDate:todayStr().slice(0,8)+'01', active:true, createdAt:Date.now()
+  };
+  const descI=h('input',{class:'input',placeholder:'e.g. Rent, Netflix',value:data.description||''});
+  const amountI=h('input',{class:'input',type:'text',inputmode:'decimal',value:data.amount?String(data.amount):''});
+  const dayI=h('input',{class:'input',type:'number',min:'1',max:'28',value:String(data.dayOfMonth||1)});
+  const startI=h('input',{class:'input',type:'date',value:data.startDate});
+
+  const catWrap=h('div',{class:'chips'});
+  CATEGORIES.forEach(c=>catWrap.append(h('button',{type:'button',class:'chip'+(c.k===data.category?' on':''),onclick:()=>{data.category=c.k;[...catWrap.children].forEach((ch,idx)=>ch.className='chip'+(CATEGORIES[idx].k===data.category?' on':''));}}, h('span',{class:'em'},c.em), c.label)));
+
+  const payerWrap=h('div',{class:'payer'});
+  ms.forEach((m,i)=>payerWrap.append(h('button',{type:'button',class:(m.id===data.paidBy?'on':''),onclick:()=>{data.paidBy=m.id;[...payerWrap.children].forEach((b,idx)=>b.className=(ms[idx].id===data.paidBy?'on':''));}},
+    h('span',{class:'av',style:{background:AV_COLORS[i]}},initials(m.name)), (m.id===meId?'You':m.name))));
+
+  const splitSeg=h('div',{class:'seg clay'});
+  const SP=[['equal','Equal'],['ratio','Ratio'],['full','One pays']];
+  SP.forEach(([k,l])=>splitSeg.append(h('button',{type:'button',class:(data.split.type===k?'on':''),onclick:()=>{data.split.type=k; if(k==='ratio'&&!data.split.weights)data.split.weights={m1:50,m2:50}; if(k==='full'&&!data.split.owedBy)data.split.owedBy=otherId(data.paidBy); [...splitSeg.children].forEach((b,idx)=>b.className=(SP[idx][0]===data.split.type?'on':'')); paintRSplit();}},l)));
+  const rSplitBody=h('div',{style:{marginTop:'10px'}});
+  function paintRSplit(){
+    rSplitBody.innerHTML='';
+    if(data.split.type==='ratio'){
+      const w=data.split.weights||(data.split.weights={m1:50,m2:50});
+      const range=h('input',{type:'range',min:'0',max:'100',step:'5',value:String(w.m1)});
+      const legend=h('div',{class:'ratio-legend'});
+      function rl(){legend.innerHTML='';legend.append(h('span',{},ms[0].name+' '+w.m1+'%'),h('span',{},ms[1].name+' '+w.m2+'%'));}
+      range.addEventListener('input',()=>{w.m1=Number(range.value);w.m2=100-w.m1;rl();}); rl();
+      rSplitBody.append(h('div',{class:'split-box'},h('div',{class:'slider-wrap'},range),legend));
+    } else if(data.split.type==='full'){
+      if(!data.split.owedBy)data.split.owedBy=otherId(data.paidBy);
+      const pk=h('div',{class:'payer'});
+      ms.forEach((m,i)=>pk.append(h('button',{type:'button',class:(data.split.owedBy===m.id?'on':''),onclick:()=>{data.split.owedBy=m.id;[...pk.children].forEach((b,idx)=>b.className=(ms[idx].id===data.split.owedBy?'on':''));}},
+        h('span',{class:'av',style:{background:AV_COLORS[i]}},initials(m.name)),(m.id===meId?'You':m.name))));
+      rSplitBody.append(h('div',{class:'split-box'},h('div',{style:{fontSize:'13px',color:'var(--muted-txt)',marginBottom:'8px'}},'Owed entirely by:'),pk));
+    }
+  }
+  paintRSplit();
+
+  buildSheet(editing?'Edit recurring bill':'New recurring bill',[
+    h('div',{class:'field'}, h('label',{},'Description'), descI),
+    h('div',{class:'field amount-field'}, h('label',{},'Amount'), h('span',{class:'cur'},'$'), amountI),
+    h('div',{class:'row2'},
+      h('div',{class:'field'}, h('label',{},'Day of month'), dayI),
+      h('div',{class:'field'}, h('label',{},'Starting'), startI)),
+    h('div',{class:'field'}, h('label',{},'Category'), catWrap),
+    h('div',{class:'field'}, h('label',{},'Paid by'), payerWrap),
+    h('div',{class:'field'}, h('label',{},'Split'), splitSeg, rSplitBody),
+  ], async()=>{
+    const amt=parseAmount(amountI.value);
+    if(!data.description.trim() && !descI.value.trim()){ toast('Give it a name.'); return false; }
+    if(!amt||amt<=0){ toast('Enter an amount.'); return false; }
+    data.description=descI.value.trim(); data.amount=Math.round(amt*100)/100;
+    data.dayOfMonth=Math.min(28,Math.max(1,Number(dayI.value)||1));
+    data.startDate=startI.value||todayStr();
+    await persistRecurring(data);
+    generateRecurring(); render();
+    toast(editing?'Saved':'Recurring bill added');
+    return true;
+  }, editing?async()=>{ if(confirm('Delete this recurring bill? (Already-added expenses stay.)')){ await removeRecurring(data.id); toast('Deleted'); return true; } return false; }:null);
+}
+
+/* ================================================================
+   generic bottom-sheet builder
+   ================================================================ */
+function buildSheet(title, fields, onSave, onDelete){
+  const scrim=h('div',{class:'scrim',onclick:(e)=>{ if(e.target===scrim) close(); }});
+  const saveBtn=h('button',{class:'btn btn-primary',style:{flex:'2'}}, 'Save');
+  saveBtn.addEventListener('click', async()=>{ saveBtn.disabled=true; const ok=await onSave(); if(ok) close(); else saveBtn.disabled=false; });
+  const footer=h('div',{style:{display:'flex',gap:'10px',marginTop:'18px'}},
+    onDelete?h('button',{class:'btn btn-danger',onclick:async()=>{ if(await onDelete()) close(); }, html:icon(ICONS.trash)}):null,
+    saveBtn);
+  const sheet=h('div',{class:'sheet'},
+    h('div',{class:'grip'}),
+    h('div',{class:'sheet-head'}, h('h2',{},title),
+      h('button',{class:'x',onclick:()=>close(),html:icon(ICONS.x)})),
+    ...fields, footer);
+  scrim.append(sheet);
+  document.body.append(scrim);
+  function close(){ scrim.style.animation='fade .18s reverse'; setTimeout(()=>scrim.remove(),160); }
+  scrim._close=close;
+  return scrim;
+}
+
+/* ================================================================
+   receipt viewer
+   ================================================================ */
+function openViewer(src){
+  const v=h('div',{class:'viewer'},
+    h('div',{class:'bar'},
+      h('button',{onclick:()=>v.remove(),html:icon(ICONS.left)+' Close'}),
+      h('button',{onclick:()=>{ const a=h('a',{href:src,download:'receipt.jpg'}); a.click(); },html:icon(ICONS.down)+' Save'})),
+    h('div',{class:'img'}, h('img',{src})));
+  document.body.append(v);
+}
+
+/* ================================================================
+   export / import
+   ================================================================ */
+async function exportData(){
+  // include receipts inline for a complete backup
+  const receipts={};
+  for(const t of Object.values(state.transactions)){
+    if(t.hasReceipt||t.thumb){ const d=await fetchReceipt(t.id); if(d) receipts[t.id]=d; }
+  }
+  const payload={ app:'tally', version:1, exportedAt:new Date().toISOString(),
+    meta:{members:config.members,currency:config.currency}, transactions:state.transactions, recurring:state.recurring, skipRecurring:state.skipRecurring, receipts };
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
+  const a=h('a',{href:URL.createObjectURL(blob),download:'tally-backup-'+todayStr()+'.json'}); a.click();
+  toast('Backup downloaded');
+}
+function importData(){
+  const inp=h('input',{type:'file',accept:'application/json,.json',style:{display:'none'}});
+  inp.addEventListener('change',()=>{
+    const f=inp.files[0]; if(!f) return;
+    const r=new FileReader();
+    r.onload=async()=>{
+      try{
+        const d=JSON.parse(r.result);
+        if(!d.transactions){ toast('That doesn\'t look like a Tally backup.'); return; }
+        if(!confirm('Import '+Object.keys(d.transactions).length+' transactions? This merges into your current data.')) return;
+        // in local mode, adopt the backup's names/currency so labels & amounts round-trip
+        if(d.meta && !isCloud()){
+          if(d.meta.members) config.members=d.meta.members;
+          if(d.meta.currency) config.currency=d.meta.currency;
+          state.meta={members:config.members,currency:config.currency}; saveConfig();
+        }
+        if(d.skipRecurring){ state.skipRecurring=Object.assign(state.skipRecurring||{}, d.skipRecurring); if(!isCloud()) localPersist(); }
+        for(const [id,t] of Object.entries(d.transactions)){ await persistTransaction(t, d.receipts&&d.receipts[id]!==undefined?d.receipts[id]:undefined); }
+        for(const [id,t] of Object.entries(d.recurring||{})){ await persistRecurring(t); }
+        toast('Imported ✓'); render();
+      }catch(e){ toast('Couldn\'t read that file.'); }
+    };
+    r.readAsText(f);
+  });
+  inp.click();
+}
+
+/* ================================================================
+   date / misc helpers
+   ================================================================ */
+function todayStr(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function fmtDate(s){ if(!s) return ''; const [y,m,dd]=s.split('-').map(Number); const d=new Date(y,m-1,dd);
+  return d.toLocaleDateString(undefined,{month:'short',day:'numeric'}); }
+function fmtMonth(ym){ if(!ym) return ''; const [y,m]=ym.split('-').map(Number); const d=new Date(y,m-1,1);
+  return d.toLocaleDateString(undefined,{month:'long',year:'numeric'}); }
+function shiftMonth(ym,delta){ let [y,m]=ym.split('-').map(Number); m+=delta; while(m<1){m+=12;y--;} while(m>12){m-=12;y++;} return `${y}-${String(m).padStart(2,'0')}`; }
+function rid(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4); }
+function escapeHtml(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+/* ================================================================
+   BOOT
+   ================================================================ */
+async function boot(justOnboarded){
+  loadConfig();
+  if(!config){ renderOnboarding(); return; }
+  if(isCloud()){
+    try{
+      app.innerHTML='<div class="spin"></div>';
+      await cloudConnect();       // listeners will call afterData()->render()
+    }catch(e){
+      console.error(e);
+      app.innerHTML='';
+      toast('Couldn\'t connect to Firebase — check config. Using local mode for now.');
+      // fall back to local data view
+      localLoad(); afterData();
+    }
+  } else {
+    localLoad(); afterData();
+  }
+  if(!config.deviceMemberId){ renderPersonPicker(); }
+}
+
+window.addEventListener('DOMContentLoaded', ()=>boot(false));
+</script>
+</body>
+</html>
