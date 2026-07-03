@@ -952,7 +952,7 @@ function screenHome(){
   if(isCloud()) {} else {
     s.append(h('div',{class:'banner',style:{marginTop:'14px'},html:icon(ICONS.info)+' <span>Local mode — data lives on this device only. Turn on sync in Settings to share with '+escapeHtml(memberName(otherId(config.deviceMemberId)))+'.</span>'}));
   }
-  if(upcomingOccurrences(60).length) s.append(upcomingSection());
+  if(upcomingOccurrences().length) s.append(upcomingSection());
   const txns=sortedTxns();
   s.append(h('div',{class:'sec-head'}, h('h2',{},'Recent'),
     txns.length>8?h('button',{class:'link',onclick:()=>go('list')},'See all'):null));
@@ -983,16 +983,16 @@ function dueDaysInMonth(ym){
   }
   return map;
 }
-function upcomingOccurrences(days){
+function upcomingOccurrences(monthsAhead){
+  monthsAhead = monthsAhead || 8;   // horizon; the list is capped to 5 soonest
   const today=new Date(); today.setHours(0,0,0,0);
-  const end=new Date(today); end.setDate(end.getDate()+days);
   const out=[];
   for(const t of Object.values(state.recurring)){
     if(!t.active) continue;
     const dom=clampDom(t.dayOfMonth);
     let d=new Date(today.getFullYear(), today.getMonth(), dom);
-    for(let i=0;i<4;i++){
-      if(d>=today && d<=end){
+    for(let i=0;i<=monthsAhead;i++){
+      if(d>=today){
         const ds=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(dom).padStart(2,'0')}`;
         if(!(t.startDate && ds < t.startDate)) out.push({date:new Date(d), tpl:t});
       }
@@ -1045,7 +1045,7 @@ function upcomingSection(){
     h('div',{class:'m'}, fmtMonth(homeCalMonth)),
     h('button',{onclick:()=>{homeCalMonth=shiftMonth(homeCalMonth,1);render();},html:icon(ICONS.right)}));
 
-  const ups=upcomingOccurrences(60);
+  const ups=upcomingOccurrences();
   const list=h('div',{class:'up-list'});
   ups.slice(0,5).forEach(o=>{
     const c=catOf(o.tpl.category);
