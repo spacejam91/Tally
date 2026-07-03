@@ -1548,9 +1548,15 @@ function openRecurringSheet(existing){
 function buildSheet(title, fields, onSave, onDelete){
   const scrim=h('div',{class:'scrim',onclick:(e)=>{ if(e.target===scrim) close(); }});
   const saveBtn=h('button',{class:'btn btn-primary',style:{flex:'2'}}, 'Save');
-  saveBtn.addEventListener('click', async()=>{ saveBtn.disabled=true; const ok=await onSave(); if(ok) close(); else saveBtn.disabled=false; });
+  saveBtn.addEventListener('click', async()=>{
+    saveBtn.disabled=true;
+    let ok=false;
+    try{ ok=await onSave(); }
+    catch(err){ console.error(err); toast('Couldn\'t save — '+((err&&err.message)||'please try again')); }
+    if(ok) close(); else saveBtn.disabled=false;
+  });
   const footer=h('div',{style:{display:'flex',gap:'10px',marginTop:'18px'}},
-    onDelete?h('button',{class:'btn btn-danger',onclick:async()=>{ if(await onDelete()) close(); }, html:icon(ICONS.trash)}):null,
+    onDelete?h('button',{class:'btn btn-danger',onclick:async()=>{ try{ if(await onDelete()) close(); }catch(err){ console.error(err); toast('Couldn\'t delete — try again'); } }, html:icon(ICONS.trash)}):null,
     saveBtn);
   const sheet=h('div',{class:'sheet'},
     h('div',{class:'grip'}),
