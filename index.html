@@ -433,7 +433,7 @@ function parseAmount(v){
   }
   return Number(s);
 }
-const members = () => (state.meta&&state.meta.members) || (config&&config.members) || [{id:'m1',name:'Me'},{id:'m2',name:'Partner'}];
+const members = () => (state.meta&&state.meta.members) || (config&&config.members) || [{id:'m1',name:'Aaron'},{id:'m2',name:'Anne'}];
 const memberName = id => (members().find(m=>m.id===id)||{}).name || '—';
 const otherId = id => id==='m1'?'m2':'m1';
 const initials = nm => (nm||'?').trim().charAt(0).toUpperCase();
@@ -723,15 +723,15 @@ function toast(msg){
    ================================================================ */
 function renderOnboarding(){
   app.innerHTML='';
-  const nameMe=h('input',{class:'input',placeholder:'e.g. Aaron',value:config?.members?.[0]?.name||''});
-  const namePartner=h('input',{class:'input',placeholder:"e.g. Sarah",value:config?.members?.[1]?.name||''});
+  const nameMe=h('input',{class:'input',placeholder:'e.g. Aaron',value:config?.members?.[0]?.name||'Aaron'});
+  const namePartner=h('input',{class:'input',placeholder:'e.g. Anne',value:config?.members?.[1]?.name||'Anne'});
   const currency=h('select',{class:'input'},
     ...['CAD','USD','EUR','GBP','AUD','INR','JPY'].map(c=>h('option',{value:c, selected:(config?.currency||'CAD')===c}, c)));
 
   const baked = hasBakedFB();
   let syncMode = isCloud()?'cloud':(baked?'cloud':'local');
   const fbInput=h('textarea',{class:'input',placeholder:'Paste the firebaseConfig object from your Firebase project here',style:{minHeight:'120px',fontFamily:'var(--mono)',fontSize:'12px'}});
-  const hhInput=h('input',{class:'input',placeholder:'e.g. sarah-and-aaron-4821',value:config?.firebase?.household||''});
+  const hhInput=h('input',{class:'input',placeholder:'e.g. aaron-and-anne-4821',value:config?.firebase?.household||''});
   if(config?.firebase) fbInput.value = JSON.stringify(config.firebase.config,null,2);
 
   // when config is baked into the app, skip the paste-config field entirely
@@ -794,7 +794,7 @@ function renderOnboarding(){
       cloudFields
     ),
     h('button',{class:'btn btn-primary',style:{width:'100%',padding:'15px'},onclick:async()=>{
-      const n1=nameMe.value.trim()||'Me', n2=namePartner.value.trim()||'Partner';
+      const n1=nameMe.value.trim()||'Aaron', n2=namePartner.value.trim()||'Anne';
       const newCfg={ members:[{id:'m1',name:n1},{id:'m2',name:n2}], currency:currency.value, deviceMemberId:(config&&config.deviceMemberId)||null, firebase:null };
       if(syncMode==='cloud'){
         let parsed;

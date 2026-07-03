@@ -34,7 +34,7 @@ This uses **Firebase** (Google's free tier). One-time setup, ~10 minutes.
    (included in this folder) → **Publish**.
 6. Open `index.html`, choose **"Sync both phones"** in setup, paste the
    `firebaseConfig` object, and pick a **household code** (a long private
-   phrase you both share, e.g. `sarah-aaron-maple-4821`).
+   phrase you both share, e.g. `aaron-and-anne-maple-4821`).
 7. Send your partner **this same `index.html` file** and the **same household
    code**. They open it, choose "Sync both phones", paste the *same* config +
    code, and pick who they are. Done — edits now sync live. ✨
