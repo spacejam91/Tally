@@ -282,6 +282,29 @@ input[type=range]{width:100%;accent-color:var(--clay);}
 .up-item .amt{font-family:var(--mono);font-weight:700;font-size:14px;}
 .up-when{font-size:11px;font-weight:700;color:var(--clay);letter-spacing:.02em;}
 
+/* 6-month trends chart */
+.trend{display:flex;align-items:flex-end;justify-content:space-between;gap:8px;height:132px;padding:10px 6px 8px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius-sm);box-shadow:var(--shadow-sm);margin-bottom:6px;}
+.trend .col{flex:1;display:flex;flex-direction:column;align-items:center;height:100%;cursor:pointer;}
+.trend .barwrap{flex:1;width:100%;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;}
+.trend .mv{font-size:9px;font-family:var(--mono);color:var(--muted-txt);margin-bottom:3px;white-space:nowrap;}
+.trend .bar{width:60%;max-width:26px;min-height:3px;border-radius:6px 6px 0 0;background:linear-gradient(180deg,var(--gold),var(--clay));transition:height .45s cubic-bezier(.2,.9,.3,1),opacity .15s;}
+.trend .col.sel .bar{background:linear-gradient(180deg,var(--clay),var(--clay-deep));}
+.trend .col.sel .mv{color:var(--clay-deep);font-weight:700;}
+.trend .col.dim .bar{opacity:.32;}
+.trend .ml{font-size:10px;font-weight:700;color:var(--muted-txt);text-transform:uppercase;margin-top:7px;}
+.trend .col.sel .ml{color:var(--ink);}
+/* budget-aware category fills + budget editor rows */
+.catbar .fill.near{background:linear-gradient(90deg,var(--gold),#dfa53a);}
+.catbar .fill.over{background:linear-gradient(90deg,#c0492c,#e2632f);}
+.catbar .top .vv.over{color:var(--clay-deep);}
+.bud-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-top:1px dashed var(--line);}
+.bud-row:first-of-type{border-top:none;}
+.bud-row .nm{font-weight:600;font-size:14.5px;display:flex;align-items:center;gap:9px;}
+.bud-row .in{width:120px;}
+.bud-row .in input{text-align:right;font-family:var(--mono);font-weight:600;}
+/* due-today banner */
+.banner.due{background:#fbf1dd;border-color:#e7ce97;color:#8a6420;font-weight:700;cursor:pointer;}
+
 /* recurring rows */
 .rec{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:13px 14px;margin-bottom:10px;box-shadow:var(--shadow-sm);}
 .rec .meta{flex:1;}
@@ -470,6 +493,7 @@ function parseAmount(v){
   return Number(s);
 }
 const members = () => (state.meta&&state.meta.members) || (config&&config.members) || [{id:'m1',name:'Aaron'},{id:'m2',name:'Anne'}];
+const budgets = () => (state.meta&&state.meta.budgets) || (config&&config.budgets) || {};   // {categoryKey: monthlyAmount}
 const memberName = id => (members().find(m=>m.id===id)||{}).name || '—';
 const otherId = id => id==='m1'?'m2':'m1';
 const initials = nm => (nm||'?').trim().charAt(0).toUpperCase();
@@ -548,7 +572,7 @@ function localLoad(){
     state.transactions = d.transactions || {};
     state.recurring = d.recurring || {};
     state.skipRecurring = d.skipRecurring || {};
-    state.meta = { members: config.members, currency: config.currency };
+    state.meta = { members: config.members, currency: config.currency, budgets: config.budgets||{} };
   }catch(e){ state.transactions={}; state.recurring={}; state.skipRecurring={}; }
 }
 function localPersist(){
@@ -592,15 +616,15 @@ function attachCloudListeners(){
   cloud.unsub.push(onSnapshot(cloud.fs.doc(cloud.db,'households',cloud.hid), snap=>{
     if(snap.exists()){
       const d = snap.data();
-      state.meta = { members: d.members || config.members, currency: d.currency || config.currency };
+      state.meta = { members: d.members || config.members, currency: d.currency || config.currency, budgets: d.budgets || {} };
       state.skipRecurring = d.skipRecurring || {};
-      // keep local config names in step for offline display
-      config.members = state.meta.members; config.currency = state.meta.currency; saveConfig();
+      // keep local config in step for offline display
+      config.members = state.meta.members; config.currency = state.meta.currency; config.budgets = state.meta.budgets; saveConfig();
     } else {
       // first connection for this household -> seed from local onboarding values
       cloud.fs.setDoc(cloud.fs.doc(cloud.db,'households',cloud.hid),
-        { members: config.members, currency: config.currency, createdAt: Date.now() }, {merge:true});
-      state.meta = { members: config.members, currency: config.currency };
+        { members: config.members, currency: config.currency, budgets: config.budgets||{}, createdAt: Date.now() }, {merge:true});
+      state.meta = { members: config.members, currency: config.currency, budgets: config.budgets||{} };
     }
     if(currentScreen) render();
   }, err=>toast('Sync error: '+err.code)));
@@ -664,10 +688,17 @@ async function removeRecurring(id){
   render();
 }
 async function saveMeta(){
-  state.meta = {members:config.members, currency:config.currency};
+  state.meta = {members:config.members, currency:config.currency, budgets:config.budgets||{}};
   if(isCloud()) await cloud.fs.setDoc(cloud.fs.doc(cloud.db,'households',cloud.hid),
       {members:config.members, currency:config.currency}, {merge:true});
   else localPersist();
+}
+async function saveBudgets(nb){
+  config.budgets = nb;
+  if(state.meta) state.meta.budgets = nb;
+  saveConfig();
+  if(isCloud()) await cloud.fs.setDoc(cloud.fs.doc(cloud.db,'households',cloud.hid), {budgets:nb}, {merge:true});
+  render();
 }
 async function fetchReceipt(id){
   if(receiptCache[id]!==undefined) return receiptCache[id];
@@ -952,6 +983,14 @@ function balanceHero(){
 function screenHome(){
   const s=h('div',{class:'screen'});
   s.append(balanceHero());
+  const dueToday=billsDueToday();
+  if(dueToday.length){
+    const totalDue=dueToday.reduce((a,t)=>a+t.amount,0);
+    const label=dueToday.length===1
+      ? (dueToday[0].description||catOf(dueToday[0].category).label)+' is due today · '+money(dueToday[0].amount)
+      : dueToday.length+' bills due today · '+money(totalDue);
+    s.append(h('div',{class:'banner due',style:{marginTop:'14px'},onclick:()=>go('recurring'),html:'🔔 <span>'+escapeHtml(label)+'</span>'}));
+  }
   if(isCloud()) {} else {
     s.append(h('div',{class:'banner',style:{marginTop:'14px'},html:icon(ICONS.info)+' <span>Local mode — data lives on this device only. Turn on sync in Settings to share with '+escapeHtml(memberName(otherId(config.deviceMemberId)))+'.</span>'}));
   }
@@ -977,6 +1016,16 @@ let homeCalMonth=null;
 function clampDom(v){ return Math.min(Math.max(Math.floor(v)||1,1),31); }   // stored day, 1–31
 // materialize the day for a specific month, falling back to that month's last day (e.g. 31 -> Feb 28)
 function domInMonth(day, y, m0){ const last=new Date(y, m0+1, 0).getDate(); return Math.min(clampDom(day), last); }
+function compactAmt(n){ n=Math.round(n); if(n>=1000) return '$'+(n/1000).toFixed(n>=10000||n%1000===0?0:1)+'k'; return '$'+n; }
+function fmtMonthShort(ym){ const [y,m]=ym.split('-').map(Number); return new Date(y,m-1,1).toLocaleDateString(undefined,{month:'short'}); }
+function billsDueToday(){
+  const today=todayStr(); const [y,m]=today.split('-').map(Number);
+  return Object.values(state.recurring).filter(t=>t.active).filter(t=>{
+    const dom=domInMonth(t.dayOfMonth,y,m-1);
+    const ds=`${y}-${String(m).padStart(2,'0')}-${String(dom).padStart(2,'0')}`;
+    return ds===today && !(t.startDate && ds<t.startDate);
+  });
+}
 function dueDaysInMonth(ym){
   const [y,m]=ym.split('-').map(Number); const map={};
   for(const t of Object.values(state.recurring)){
@@ -1130,6 +1179,18 @@ function screenSummary(){
     h('div',{class:'lbl'}, fmtMonth(summaryMonth)),
     h('button',{onclick:()=>{summaryMonth=shiftMonth(summaryMonth,1);render();},html:icon(ICONS.right)})
   ));
+  // 6-month spending trend (tap a bar to jump to that month)
+  const trendMonths=[]; for(let i=5;i>=0;i--) trendMonths.push(shiftMonth(summaryMonth,-i));
+  const trendTotals=trendMonths.map(ym=>Object.values(state.transactions).filter(t=>t.type!=='settlement'&&ymOf(t.date||'')===ym).reduce((a,t)=>a+t.amount,0));
+  const trendMax=Math.max(1,...trendTotals);
+  const trend=h('div',{class:'trend'});
+  trendMonths.forEach((ym,i)=>{
+    const v=trendTotals[i], sel=ym===summaryMonth;
+    trend.append(h('div',{class:'col'+(sel?' sel':'')+(v===0?' dim':''),onclick:()=>{summaryMonth=ym;render();}},
+      h('div',{class:'barwrap'}, h('div',{class:'mv'}, v?compactAmt(v):''), h('div',{class:'bar',style:{height:(v/trendMax*100)+'%'}})),
+      h('div',{class:'ml'}, fmtMonthShort(ym))));
+  });
+  s.append(trend);
   const exp=Object.values(state.transactions).filter(t=>t.type!=='settlement'&&ymOf(t.date||'')===summaryMonth);
   const total=exp.reduce((a,t)=>a+t.amount,0);
   const ms=members();
@@ -1150,23 +1211,49 @@ function screenSummary(){
     ))
   ));
 
-  // categories
+  // categories (budget-aware)
+  const b=budgets();
   const byCat={};
   exp.forEach(t=>{ byCat[t.category]=(byCat[t.category]||0)+t.amount; });
-  const cats=Object.entries(byCat).sort((a,b)=>b[1]-a[1]);
-  s.append(h('div',{class:'sec-head'}, h('h3',{style:{fontSize:'16px'}},'By category')));
-  if(!cats.length){ s.append(h('div',{class:'empty'}, h('p',{},'No expenses in '+fmtMonth(summaryMonth)+'.'))); return s; }
-  const max=cats[0][1]||1;
-  cats.forEach(([k,v])=>{
-    const c=catOf(k);
+  const keys=[...new Set([...Object.keys(byCat), ...Object.keys(b).filter(k=>b[k]>0)])];
+  s.append(h('div',{class:'sec-head'}, h('h3',{style:{fontSize:'16px'}},'By category'),
+    h('button',{class:'link',onclick:openBudgetSheet}, Object.keys(b).length?'Edit budgets':'Set budgets')));
+  if(!keys.length){ s.append(h('div',{class:'empty'}, h('p',{},'No expenses in '+fmtMonth(summaryMonth)+'.'))); return s; }
+  const spentMax=Math.max(1,...keys.map(k=>byCat[k]||0));
+  keys.sort((a,b2)=>(byCat[b2]||0)-(byCat[a]||0));
+  keys.forEach(k=>{
+    const c=catOf(k), v=byCat[k]||0, bud=b[k]||0;
+    const over=bud&&v>bud, near=bud&&!over&&v>=bud*0.8;
+    const pct=bud?Math.min(100,v/bud*100):(v/spentMax*100);
+    const right=bud ? (money(v)+' / '+money(bud)) : (money(v)+(total?' · '+Math.round(v/total*100)+'%':''));
     s.append(h('div',{class:'catbar'},
       h('div',{class:'top'},
         h('div',{class:'nm'}, h('span',{},c.em), c.label),
-        h('div',{class:'vv'}, money(v)+' · '+Math.round(v/total*100)+'%')),
-      h('div',{class:'track'}, h('div',{class:'fill',style:{width:(v/max*100)+'%'}}))
+        h('div',{class:'vv'+(over?' over':'')}, right)),
+      h('div',{class:'track'}, h('div',{class:'fill'+(over?' over':near?' near':''),style:{width:pct+'%'}})),
+      over?h('div',{style:{fontSize:'11px',color:'var(--clay-deep)',fontWeight:'700',marginTop:'3px',textAlign:'right'}}, 'Over by '+money(v-bud)):null
     ));
   });
   return s;
+}
+
+/* ---- monthly category budgets editor ---- */
+function openBudgetSheet(){
+  const b={...budgets()};
+  const inputs={};
+  const fields=[ h('div',{class:'banner',html:icon(ICONS.info)+' <span>Set a monthly cap per category. Summary bars turn amber near the limit and red when over. Leave blank for no budget — shared with '+escapeHtml(memberName(otherId(config.deviceMemberId)))+'.</span>'}) ];
+  CATEGORIES.forEach(c=>{
+    const inp=h('input',{class:'input',type:'text',inputmode:'decimal',placeholder:'—',value:b[c.k]?String(b[c.k]):''});
+    inputs[c.k]=inp;
+    fields.push(h('div',{class:'bud-row'}, h('div',{class:'nm'}, h('span',{},c.em), c.label), h('div',{class:'in'}, inp)));
+  });
+  buildSheet('Monthly budgets', fields, async()=>{
+    const nb={};
+    CATEGORIES.forEach(c=>{ const v=parseAmount(inputs[c.k].value); if(v&&v>0) nb[c.k]=Math.round(v*100)/100; });
+    await saveBudgets(nb);
+    toast('Budgets saved');
+    return true;
+  });
 }
 
 /* ---------- RECURRING ---------- */
