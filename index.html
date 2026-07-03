@@ -318,6 +318,20 @@ const CFG_KEY = 'tally.config.v1';
 const LOCAL_DATA_KEY = 'tally.data.v1';
 const LOCAL_RCPT_KEY = 'tally.receipts.v1';
 
+// Firebase config baked in so neither person has to paste it — they only enter the shared
+// household code at setup. A web apiKey is NOT a secret (it ships in every Firebase web app);
+// your data is protected by the Firestore rules + your private household code. Safe to commit.
+const BAKED_FB = {
+  apiKey: "AIzaSyATPyn7ZPP5Jlpp4H4G2jQ-5JRnQLPtB_U",
+  authDomain: "tally-26915.firebaseapp.com",
+  projectId: "tally-26915",
+  storageBucket: "tally-26915.firebasestorage.app",
+  messagingSenderId: "712940297443",
+  appId: "1:712940297443:web:fb9b8ef2db05c78efef9d6",
+  measurementId: "G-LBQBG52GDB"
+};
+const hasBakedFB = () => !!(BAKED_FB && BAKED_FB.apiKey);
+
 const CATEGORIES = [
   {k:'groceries', label:'Groceries', em:'🛒'},
   {k:'dining',    label:'Dining',    em:'🍽️'},
@@ -714,28 +728,42 @@ function renderOnboarding(){
   const currency=h('select',{class:'input'},
     ...['CAD','USD','EUR','GBP','AUD','INR','JPY'].map(c=>h('option',{value:c, selected:(config?.currency||'CAD')===c}, c)));
 
-  let syncMode = isCloud()?'cloud':'local';
+  const baked = hasBakedFB();
+  let syncMode = isCloud()?'cloud':(baked?'cloud':'local');
   const fbInput=h('textarea',{class:'input',placeholder:'Paste the firebaseConfig object from your Firebase project here',style:{minHeight:'120px',fontFamily:'var(--mono)',fontSize:'12px'}});
   const hhInput=h('input',{class:'input',placeholder:'e.g. sarah-and-aaron-4821',value:config?.firebase?.household||''});
   if(config?.firebase) fbInput.value = JSON.stringify(config.firebase.config,null,2);
 
+  // when config is baked into the app, skip the paste-config field entirely
+  const configField = baked
+    ? h('div',{class:'banner',style:{marginBottom:'0'},html:icon(ICONS.check)+' <span>Firebase is already built into this app — just share the code below with '+escapeHtml(namePartner.value||'your partner')+'.</span>'})
+    : h('div',{class:'field'}, h('label',{},'Firebase config'), fbInput);
+  const helpDetails = baked
+    ? h('details',{class:'help'},
+        h('summary',{html:icon(ICONS.info)+' One-time Firebase setup (whoever owns the project)'}),
+        h('ol',{},
+          h('li',{html:'<b>Firestore Database → Create database</b> → Standard → <b>production mode</b>.'}),
+          h('li',{html:'<b>Authentication → Sign-in method → Anonymous → Enable</b>.'}),
+          h('li',{html:'Firestore → <b>Rules</b> → paste <code>firestore.rules</code> → Publish.'})
+        ))
+    : h('details',{class:'help'},
+        h('summary',{html:icon(ICONS.info)+' How do I get the Firebase config? (~10 min, free)'}),
+        h('ol',{},
+          h('li',{html:'Go to <code>console.firebase.google.com</code> → <b>Add project</b> (any name). Skip Google Analytics.'}),
+          h('li',{html:'In the project, click the <b>&lt;/&gt;</b> (web) icon to “Add app”. Register it — you\'ll be shown a <code>firebaseConfig = {…}</code> block. Copy the object and paste it above.'}),
+          h('li',{html:'Left menu → <b>Build → Firestore Database → Create database</b> → Start in <b>production mode</b>.'}),
+          h('li',{html:'Left menu → <b>Build → Authentication → Get started → Sign-in method → Anonymous → Enable</b>.'}),
+          h('li',{html:'Firestore → <b>Rules</b> tab: paste the rules from the included <code>firestore.rules</code> file and Publish.'}),
+          h('li',{html:'Send your partner this file + the same household code. Done — edits sync live.'})
+        ));
+
   const cloudFields=h('div',{class:syncMode==='cloud'?'':'hide'},
-    h('div',{class:'field'}, h('label',{},'Firebase config'), fbInput),
+    configField,
     h('div',{class:'field'}, h('label',{},'Shared household code'),
       hhInput,
       h('div',{style:{fontSize:'12px',color:'var(--muted-txt)',marginTop:'6px'}},'Both of you enter the exact same code. Make it long & private — anyone with the code and app can see your data.')
     ),
-    h('details',{class:'help'},
-      h('summary',{html:icon(ICONS.info)+' How do I get the Firebase config? (~10 min, free)'}),
-      h('ol',{},
-        h('li',{html:'Go to <code>console.firebase.google.com</code> → <b>Add project</b> (any name). Skip Google Analytics.'}),
-        h('li',{html:'In the project, click the <b>&lt;/&gt;</b> (web) icon to “Add app”. Register it — you\'ll be shown a <code>firebaseConfig = {…}</code> block. Copy the object and paste it above.'}),
-        h('li',{html:'Left menu → <b>Build → Firestore Database → Create database</b> → Start in <b>production mode</b>.'}),
-        h('li',{html:'Left menu → <b>Build → Authentication → Get started → Sign-in method → Anonymous → Enable</b>.'}),
-        h('li',{html:'Firestore → <b>Rules</b> tab: paste the rules from the included <code>firestore.rules</code> file and Publish.'}),
-        h('li',{html:'Send your partner this file + the same household code. Done — edits sync live.'})
-      )
-    )
+    helpDetails
   );
 
   const seg=h('div',{class:'seg'},
@@ -770,15 +798,19 @@ function renderOnboarding(){
       const newCfg={ members:[{id:'m1',name:n1},{id:'m2',name:n2}], currency:currency.value, deviceMemberId:(config&&config.deviceMemberId)||null, firebase:null };
       if(syncMode==='cloud'){
         let parsed;
-        try{
-          let raw=fbInput.value
-            .replace(/\/\/.*$/gm,'')                 // strip // comments the console emits
-            .replace(/\/\*[\s\S]*?\*\//g,'')          // strip /* */ comments
-            .replace(/^\s*(?:const|let|var)\s+firebaseConfig\s*=\s*/m,'')
-            .replace(/^\s*window\.firebaseConfig\s*=\s*/m,'')
-            .trim().replace(/;\s*$/,'').trim();
-          parsed = JSON.parse(raw.replace(/([{,]\s*)([A-Za-z0-9_$]+)\s*:/g,'$1"$2":').replace(/'([^']*)'/g,'"$1"'));
-        }catch(e){ toast('Couldn\'t read that Firebase config — paste the whole { … } block.'); return; }
+        if(hasBakedFB()){
+          parsed = BAKED_FB;                         // config is built in — no paste needed
+        } else {
+          try{
+            let raw=fbInput.value
+              .replace(/\/\/.*$/gm,'')                 // strip // comments the console emits
+              .replace(/\/\*[\s\S]*?\*\//g,'')          // strip /* */ comments
+              .replace(/^\s*(?:const|let|var)\s+firebaseConfig\s*=\s*/m,'')
+              .replace(/^\s*window\.firebaseConfig\s*=\s*/m,'')
+              .trim().replace(/;\s*$/,'').trim();
+            parsed = JSON.parse(raw.replace(/([{,]\s*)([A-Za-z0-9_$]+)\s*:/g,'$1"$2":').replace(/'([^']*)'/g,'"$1"'));
+          }catch(e){ toast('Couldn\'t read that Firebase config — paste the whole { … } block.'); return; }
+        }
         if(!parsed.apiKey||!parsed.projectId){ toast('That config is missing apiKey/projectId.'); return; }
         const hh=hhInput.value.trim();
         if(hh.length<6){ toast('Pick a household code of at least 6 characters.'); return; }
