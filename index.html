@@ -537,6 +537,7 @@ function computeBalances(){
    ================================================================ */
 function loadConfig(){
   try{ config = JSON.parse(localStorage.getItem(CFG_KEY)); }catch(e){ config=null; }
+  if(config && config.firebase && config.firebase.household){ config.firebase.household = normHousehold(config.firebase.household); }
 }
 function saveConfig(){ localStorage.setItem(CFG_KEY, JSON.stringify(config)); }
 
@@ -579,7 +580,7 @@ async function cloudConnect(){
     authMod.onAuthStateChanged(auth, u=>{ if(u) res(u); });
     authMod.signInAnonymously(auth).catch(rej);
   });
-  cloud = { app:application, db, auth, fs:fsMod, hid:fb.household, unsub:[] };
+  cloud = { app:application, db, auth, fs:fsMod, hid:normHousehold(fb.household), unsub:[] };
   attachCloudListeners();
 }
 function hdoc(...path){ return cloud.fs.doc(cloud.db, 'households', cloud.hid, ...path); }
@@ -614,6 +615,8 @@ function attachCloudListeners(){
 }
 
 const isCloud = () => !!(config && config.firebase && config.firebase.config);
+// household codes are case-insensitive: canonicalize so "AaronIsTheBoss" and "aaronistheboss" hit the same space
+function normHousehold(s){ return String(s||'').trim().toLowerCase().replace(/\//g,'-'); }
 
 /* ---- unified write ops ---- */
 async function persistTransaction(t, receiptFull /*optional*/){
@@ -797,7 +800,7 @@ function renderOnboarding(){
     configField,
     h('div',{class:'field'}, h('label',{},'Shared household code'),
       hhInput,
-      h('div',{style:{fontSize:'12px',color:'var(--muted-txt)',marginTop:'6px'}},'Both of you enter the exact same code. Make it long & private — anyone with the code and app can see your data.')
+      h('div',{style:{fontSize:'12px',color:'var(--muted-txt)',marginTop:'6px'}},'Both of you enter the same code — capitalization doesn\'t matter. Make it long & private; anyone with the code and app can see your data.')
     ),
     helpDetails
   );
@@ -848,7 +851,7 @@ function renderOnboarding(){
           }catch(e){ toast('Couldn\'t read that Firebase config — paste the whole { … } block.'); return; }
         }
         if(!parsed.apiKey||!parsed.projectId){ toast('That config is missing apiKey/projectId.'); return; }
-        const hh=hhInput.value.trim();
+        const hh=normHousehold(hhInput.value);
         if(hh.length<6){ toast('Pick a household code of at least 6 characters.'); return; }
         newCfg.firebase={config:parsed, household:hh};
       }
@@ -1237,16 +1240,16 @@ function openHouseholdSheet(){
   const partner = memberName(otherId(config.deviceMemberId));
   const inp=h('input',{class:'input',value:current,autocapitalize:'off',autocorrect:'off',spellcheck:'false',style:{fontFamily:'var(--mono)'}});
   const copyBtn=h('button',{class:'btn btn-ghost',type:'button',style:{width:'100%'},onclick:async()=>{
-    const code=inp.value.trim();
+    const code=normHousehold(inp.value);
     try{ await navigator.clipboard.writeText(code); toast('Code copied — send it to '+partner); }
     catch(e){ inp.focus(); inp.select(); toast('Press and hold to copy the code'); }
   }}, h('span',{html:icon(ICONS.clip)}),'Copy code');
   buildSheet('Household code', [
-    h('div',{class:'banner',html:icon(ICONS.info)+' <span>This is the shared key to your data. You and '+escapeHtml(partner)+' must use the <b>exact same code</b>. Changing it points <b>this device</b> at a different shared space — so change it on both phones together.</span>'}),
+    h('div',{class:'banner',html:icon(ICONS.info)+' <span>This is the shared key to your data. You and '+escapeHtml(partner)+' must use the <b>same code</b> (capitalization doesn\'t matter). Changing it points <b>this device</b> at a different shared space — so change it on both phones together.</span>'}),
     h('div',{class:'field'}, h('label',{},'Code'), inp),
     copyBtn
   ], async()=>{
-    const code=inp.value.trim();
+    const code=normHousehold(inp.value);
     if(code.length<6){ toast('Use at least 6 characters.'); return false; }
     if(code===current){ return true; }
     if(!confirm('Point this device at household “'+code+'”?\n\nMake sure '+partner+' uses the same code, or you\'ll be in separate spaces.')) return false;
