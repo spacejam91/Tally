@@ -1078,6 +1078,34 @@ function billsDueToday(){
     return ds===today && !(t.startDate && ds<t.startDate);
   });
 }
+// log an upcoming bill before its due date — deterministic id stops the auto-generator duplicating it later
+async function logUpcoming(o, instId){
+  if(state.transactions[instId]){ toast('Already logged'); render(); return; }
+  const t=o.tpl;
+  const dateStr=`${o.date.getFullYear()}-${String(o.date.getMonth()+1).padStart(2,'0')}-${String(o.date.getDate()).padStart(2,'0')}`;
+  const txn={ id:instId, type:'expense', description:t.description, amount:t.amount, category:t.category,
+    date:dateStr, paidBy:t.paidBy, split:t.split, shares:computeShares(t.amount,t.split,t.paidBy),
+    hasReceipt:false, thumb:null, recurringId:t.id, createdBy:config.deviceMemberId, createdAt:Date.now(), updatedAt:Date.now() };
+  await persistTransaction(txn);
+  toast((t.description||'Bill')+' logged — balance updated');
+}
+// recurring bills expected in a month that haven't been logged yet (for month-ahead budgeting)
+function plannedForMonth(ym){
+  const [y,m]=ym.split('-').map(Number);
+  const out={total:0, byCat:{}};
+  const today=todayStr();
+  for(const t of Object.values(state.recurring)){
+    if(!t.active) continue;
+    const dom=domInMonth(t.dayOfMonth, y, m-1);
+    const ds=`${y}-${String(m).padStart(2,'0')}-${String(dom).padStart(2,'0')}`;
+    if(t.startDate && ds<t.startDate) continue;
+    if(ds<today) continue;                                      // past-due handled by the auto-generator
+    if(state.transactions[`rec_${t.id}_${y}${String(m).padStart(2,'0')}`]) continue;  // already logged
+    out.total+=t.amount;
+    out.byCat[t.category]=(out.byCat[t.category]||0)+t.amount;
+  }
+  return out;
+}
 function dueDaysInMonth(ym){
   const [y,m]=ym.split('-').map(Number); const map={};
   for(const t of Object.values(state.recurring)){
@@ -1156,13 +1184,19 @@ function upcomingSection(){
   const list=h('div',{class:'up-list'});
   ups.slice(0,5).forEach(o=>{
     const c=catOf(o.tpl.category);
+    const instId=`rec_${o.tpl.id}_${o.date.getFullYear()}${String(o.date.getMonth()+1).padStart(2,'0')}`;
+    const logged=!!state.transactions[instId];
     list.append(h('div',{class:'up-item',onclick:()=>openRecurringSheet(o.tpl)},
       h('div',{class:'ic'}, c.em),
       h('div',{class:'m'}, h('div',{class:'t'}, o.tpl.description||c.label),
         h('div',{class:'s'}, memberName(o.tpl.paidBy)+' pays · '+splitSummary(o.tpl.amount,o.tpl.split,o.tpl.paidBy))),
       h('div',{style:{textAlign:'right'}},
         h('div',{class:'amt'}, money(o.tpl.amount)),
-        h('div',{class:'up-when'}, fmtUpcoming(o.date)))));
+        h('div',{class:'up-when'}, fmtUpcoming(o.date)),
+        logged
+          ? h('div',{style:{fontSize:'10.5px',color:'var(--forest)',fontWeight:'800',marginTop:'4px'}},'✓ logged')
+          : h('button',{class:'btn btn-ghost btn-sm',type:'button',style:{marginTop:'6px',padding:'5px 11px',fontSize:'11.5px'},
+              onclick:(e)=>{e.stopPropagation(); logUpcoming(o, instId);}},'Log now'))));
   });
 
   const wrap=h('div',{});
@@ -1204,9 +1238,10 @@ function txRow(t,i){
         addedByTag(t),
         (t.hasReceipt||t.thumb)?h('span',{class:'clip',html:icon(ICONS.clip)}):null)
     ),
-    h('div',{class:'amt'},
-      h('div',{class:'n '+(delta>0.005?'pos':delta<-0.005?'neg':'')}, (Math.abs(delta)<0.005?money(0):money(Math.abs(delta),false))),
-      h('div',{class:'l'}, delta>0.005?'you lent':delta<-0.005?'you owe':'even'))
+    (()=>{ const pb=t.paidBackId && state.transactions[t.paidBackId];
+      return h('div',{class:'amt'},
+        h('div',{class:'n '+(pb?'pos':delta>0.005?'pos':delta<-0.005?'neg':'')}, (Math.abs(delta)<0.005?money(0):money(Math.abs(delta),false))),
+        h('div',{class:'l',style:pb?{color:'var(--forest)',fontWeight:'800'}:null}, pb?'paid back ✓':(delta>0.005?'you lent':delta<-0.005?'you owe':'even'))); })()
   );
 }
 
@@ -1300,6 +1335,11 @@ function screenSummary(){
     h('div',{class:'stat'}, h('div',{class:'k'},'Total spent'), h('div',{class:'v'}, money(total))),
     h('div',{class:'stat'}, h('div',{class:'k'},'Expenses'), h('div',{class:'v'}, String(exp.length),' ',h('small',{},'entries')))
   ));
+  const planned=plannedForMonth(summaryMonth);
+  if(planned.total>0){
+    s.append(h('div',{class:'banner',style:{margin:'0 0 14px'},
+      html:'📅 <span>'+escapeHtml(money(planned.total))+' in recurring bills still to come '+(summaryMonth===ymOf(todayStr())?'this month':'in '+escapeHtml(fmtMonth(summaryMonth)))+' — projected total '+escapeHtml(money(total+planned.total))+'</span>'}));
+  }
 
   s.append(h('div',{class:'sec-head'}, h('h3',{style:{fontSize:'16px'}},'Each person\'s share')));
   s.append(h('div',{class:'who-split'},
@@ -1314,7 +1354,7 @@ function screenSummary(){
   const b=budgets();
   const byCat={};
   exp.forEach(t=>{ byCat[t.category]=(byCat[t.category]||0)+t.amount; });
-  const keys=[...new Set([...Object.keys(byCat), ...Object.keys(b).filter(k=>b[k]>0)])];
+  const keys=[...new Set([...Object.keys(byCat), ...Object.keys(b).filter(k=>b[k]>0), ...Object.keys(planned.byCat)])];
   s.append(h('div',{class:'sec-head'}, h('h3',{style:{fontSize:'16px'}},'By category'),
     h('button',{class:'link',onclick:openBudgetSheet}, Object.keys(b).length?'Edit budgets':'Set budgets')));
   if(!keys.length){ s.append(h('div',{class:'empty'}, h('p',{},'No expenses in '+fmtMonth(summaryMonth)+'.'))); return s; }
@@ -1324,7 +1364,9 @@ function screenSummary(){
     const c=catOf(k), v=byCat[k]||0, bud=b[k]||0;
     const over=bud&&v>bud, near=bud&&!over&&v>=bud*0.8;
     const pct=bud?Math.min(100,v/bud*100):(v/spentMax*100);
-    const right=bud ? (money(v)+' / '+money(bud)) : (money(v)+(total?' · '+Math.round(v/total*100)+'%':''));
+    const plan=planned.byCat[k]||0;
+    let right=bud ? (money(v)+' / '+money(bud)) : (money(v)+(total?' · '+Math.round(v/total*100)+'%':''));
+    if(plan>0) right+=' · +'+money(plan)+' planned';
     s.append(h('div',{class:'catbar'},
       h('div',{class:'top'},
         h('div',{class:'nm'}, h('span',{},c.em), c.label),
@@ -1584,7 +1626,10 @@ function openExpenseSheet(existing){
       ms.forEach((m,i)=>pk.append(h('button',{type:'button',class:(data.split.owedBy===m.id?'on':''),onclick:()=>{data.split.owedBy=m.id;paintSplit();}},
         h('span',{class:'av',style:{background:AV_COLORS[i]}},initials(m.name)), (m.id===meId?'You':m.name))));
       box.append(pk); splitBody.append(box);
-      splitHint.textContent=memberName(data.split.owedBy)+' owes the full '+money(amt);
+      if(data.split.owedBy===data.paidBy){
+        splitHint.textContent='⚠ '+memberName(data.split.owedBy)+' pays AND owes it — nothing will be owed to anyone.';
+        splitHint.className='split-hint bad';
+      } else splitHint.textContent=memberName(data.split.owedBy)+' owes the full '+money(amt);
     } else if(data.split.type==='ratio'){
       if(!data.split.weights) data.split.weights={m1:50,m2:50};
       const w=data.split.weights;
@@ -1594,7 +1639,13 @@ function openExpenseSheet(existing){
       function relabel(){ const s=sh();
         legend.innerHTML='';
         legend.append(h('span',{}, (ms[0].id===meId?'You':ms[0].name)+' '+w.m1+'% · '+money(s.m1)),
-                      h('span',{}, (ms[1].id===meId?'You':ms[1].name)+' '+w.m2+'% · '+money(s.m2))); }
+                      h('span',{}, (ms[1].id===meId?'You':ms[1].name)+' '+w.m2+'% · '+money(s.m2)));
+        const payerW = data.paidBy===ms[0].id ? w.m1 : w.m2;
+        if(payerW>=100){
+          splitHint.textContent='⚠ '+(data.paidBy===meId?'You pay and cover':memberName(data.paidBy)+' pays and covers')+' the whole thing — nothing will be owed. Slide toward '+memberName(otherId(data.paidBy))+' to split it.';
+          splitHint.className='split-hint bad';
+        } else { splitHint.textContent=''; splitHint.className='split-hint'; }
+      }
       range.addEventListener('input',()=>{ w.m1=Number(range.value); w.m2=100-w.m1; relabel(); });
       relabel();
       splitBody.append(h('div',{class:'split-box'}, h('div',{class:'slider-wrap'}, range), legend));
@@ -1655,6 +1706,34 @@ function openExpenseSheet(existing){
   paintReceipt();
   paintSplit();
 
+  // per-expense paid-back marking (creates a linked settlement so the balance stays honest)
+  const paidBackZone=h('div',{class:editing?'field':'hide'});
+  function paintPaidBack(){
+    paidBackZone.innerHTML='';
+    if(!editing) return;
+    const t=state.transactions[data.id]; if(!t||t.type!=='expense') return;
+    const sh=t.shares||computeShares(t.amount,t.split,t.paidBy);
+    const ower=otherId(t.paidBy), owed=Math.round((sh[ower]||0)*100)/100;
+    const pb=t.paidBackId && state.transactions[t.paidBackId];
+    if(pb){
+      paidBackZone.append(h('button',{class:'btn btn-ghost',type:'button',style:{width:'100%'},onclick:async()=>{
+        const sid=t.paidBackId; delete t.paidBackId; t.updatedAt=Date.now();
+        await persistTransaction(t);
+        if(state.transactions[sid]) await removeTransaction(sid);
+        delete data.paidBackId; toast('Paid-back undone'); paintPaidBack();
+      }},'✓ Paid back — tap to undo'));
+    } else if(owed>0.005){
+      paidBackZone.append(h('button',{class:'btn btn-forest',type:'button',style:{width:'100%'},onclick:async()=>{
+        const st={id:'st_'+rid(),type:'settlement',from:ower,to:t.paidBy,amount:owed,date:todayStr(),
+          note:'Paid back: '+(t.description||catOf(t.category).label),forTxn:t.id,createdBy:config.deviceMemberId,createdAt:Date.now()};
+        await persistTransaction(st);
+        t.paidBackId=st.id; t.updatedAt=Date.now();
+        await persistTransaction(t);
+        data.paidBackId=st.id; toast('Marked paid back ✓'); paintPaidBack();
+      }}, h('span',{html:icon(ICONS.check)}), 'Mark paid back — '+memberName(ower)+' paid '+money(owed)));
+    }
+  }
+  paintPaidBack();
   const sheet=buildSheet(editing?'Edit expense':'Add expense', [
     h('div',{class:'field amount-field'}, h('label',{},'Amount'), h('span',{class:'cur'},'$'), amountI),
     h('div',{class:'field'}, h('label',{},'Description'), descI),
@@ -1664,6 +1743,7 @@ function openExpenseSheet(existing){
     h('div',{class:'field'}, h('label',{},'Category'), catWrap),
     h('div',{class:'field'}, h('label',{},'Split'), splitSeg, splitBody),
     h('div',{class:'field'}, h('label',{},'Receipt'), fileI, receiptZone),
+    paidBackZone,
   ], async()=>{
     const amt=parseAmount(amountI.value);
     if(!amt||amt<=0){ toast('Enter an amount greater than 0.'); return false; }
