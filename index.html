@@ -1005,10 +1005,20 @@ function upcomingOccurrences(days){
 function fmtUpcoming(date){
   const t=new Date(); t.setHours(0,0,0,0);
   const days=Math.round((date-t)/86400000);
-  if(days<=0) return 'Today';
-  if(days===1) return 'Tomorrow';
-  if(days<=21) return 'in '+days+' days';
-  return date.toLocaleDateString(undefined,{month:'short',day:'numeric'});
+  const abs=date.toLocaleDateString(undefined,{month:'short',day:'numeric'});
+  if(days<=0) return 'Today · '+abs;
+  if(days===1) return 'Tomorrow · '+abs;
+  if(days<=21) return abs+' · in '+days+'d';
+  return abs;
+}
+function nameOrYou(id){ return id===config.deviceMemberId?'You':memberName(id); }
+// human-readable split for a bill, e.g. "split $1,000 each", "You $1,400 · Anne $600", "Anne owes it all"
+function splitSummary(amount, split, paidBy){
+  const ms=members(); const t=(split&&split.type)||'equal';
+  const sh=computeShares(amount, split||{type:'equal'}, paidBy);
+  if(t==='equal') return 'split '+money(sh[ms[0].id])+' each';
+  if(t==='full'){ const ower=(split&&split.owedBy)||(paidBy==='m1'?'m2':'m1'); return ower===config.deviceMemberId?'You owe it all':memberName(ower)+' owes it all'; }
+  return ms.map(m=>nameOrYou(m.id)+' '+money(sh[m.id])).join(' · ');
 }
 function upcomingSection(){
   if(!homeCalMonth) homeCalMonth=ymOf(todayStr());
@@ -1042,7 +1052,7 @@ function upcomingSection(){
     list.append(h('div',{class:'up-item',onclick:()=>openRecurringSheet(o.tpl)},
       h('div',{class:'ic'}, c.em),
       h('div',{class:'m'}, h('div',{class:'t'}, o.tpl.description||c.label),
-        h('div',{class:'s'}, memberName(o.tpl.paidBy)+' pays · '+o.date.toLocaleDateString(undefined,{month:'short',day:'numeric'}))),
+        h('div',{class:'s'}, memberName(o.tpl.paidBy)+' pays · '+splitSummary(o.tpl.amount,o.tpl.split,o.tpl.paidBy))),
       h('div',{style:{textAlign:'right'}},
         h('div',{class:'amt'}, money(o.tpl.amount)),
         h('div',{class:'up-when'}, fmtUpcoming(o.date)))));
@@ -1171,7 +1181,7 @@ function screenRecurring(){
       h('div',{class:'ic tx',style:{width:'42px',height:'42px',borderRadius:'11px',display:'grid',placeItems:'center',background:'var(--paper-2)',border:'1px solid var(--line)',fontSize:'20px',padding:0,margin:0}}, c.em),
       h('div',{class:'meta',onclick:()=>openRecurringSheet(t)},
         h('div',{class:'t'}, t.description||c.label),
-        h('div',{class:'s'}, money(t.amount)+' · monthly on day '+(t.dayOfMonth||1)+' · '+memberName(t.paidBy)+' pays')),
+        h('div',{class:'s'}, money(t.amount)+' · '+splitSummary(t.amount,t.split,t.paidBy)+' · '+memberName(t.paidBy)+' pays · day '+(t.dayOfMonth||1))),
       h('div',{class:'switch'+(t.active?' on':''),onclick:()=>{t.active=!t.active; persistRecurring(t); toast(t.active?'Resumed':'Paused');}})
     ));
   });
