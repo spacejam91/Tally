@@ -254,6 +254,32 @@ input[type=range]{width:100%;accent-color:var(--clay);}
 .who-split .c .nm{font-size:13px;font-weight:700;color:var(--muted-txt);}
 .who-split .c .vv{font-family:var(--mono);font-weight:700;font-size:19px;margin-top:3px;}
 
+/* upcoming-bills calendar (home) */
+.cal{background:var(--card);border:1px solid var(--line);border-radius:var(--radius-sm);padding:14px 14px 6px;box-shadow:var(--shadow-sm);}
+.cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+.cal-head .m{font-family:var(--serif);font-size:16px;font-weight:600;}
+.cal-head button{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;background:var(--paper-2);border:1px solid var(--line);color:var(--ink-soft);}
+.cal-head button svg{width:16px;height:16px;}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;}
+.cal-grid .dow{text-align:center;font-size:10px;font-weight:700;color:var(--muted-txt);text-transform:uppercase;padding-bottom:5px;}
+.cal-cell{height:34px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;border-radius:9px;position:relative;color:var(--ink);}
+.cal-cell.pad{visibility:hidden;}
+.cal-cell.past{color:var(--muted-txt);opacity:.5;}
+.cal-cell.today{background:var(--ink);color:var(--paper-2);}
+.cal-cell.due{background:#fdf3ee;color:var(--clay-deep);font-weight:700;}
+.cal-cell.due.today{background:var(--clay);color:#fff;}
+.cal-cell .dot{width:5px;height:5px;border-radius:50%;background:var(--clay);position:absolute;bottom:4px;left:50%;transform:translateX(-50%);}
+.cal-cell.today .dot{background:var(--paper-2);}
+.up-list{margin-top:12px;}
+.up-item{display:flex;align-items:center;gap:11px;padding:10px 0;border-top:1px dashed var(--line);cursor:pointer;transition:opacity .12s;}
+.up-item:active{opacity:.6;}
+.up-item .ic{width:34px;height:34px;border-radius:9px;flex:none;display:grid;place-items:center;font-size:17px;background:var(--paper-2);border:1px solid var(--line);}
+.up-item .m{flex:1;min-width:0;}
+.up-item .m .t{font-weight:600;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.up-item .m .s{font-size:12px;color:var(--muted-txt);margin-top:2px;}
+.up-item .amt{font-family:var(--mono);font-weight:700;font-size:14px;}
+.up-when{font-size:11px;font-weight:700;color:var(--clay);letter-spacing:.02em;}
+
 /* recurring rows */
 .rec{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:13px 14px;margin-bottom:10px;box-shadow:var(--shadow-sm);}
 .rec .meta{flex:1;}
@@ -924,6 +950,7 @@ function screenHome(){
   if(isCloud()) {} else {
     s.append(h('div',{class:'banner',style:{marginTop:'14px'},html:icon(ICONS.info)+' <span>Local mode — data lives on this device only. Turn on sync in Settings to share with '+escapeHtml(memberName(otherId(config.deviceMemberId)))+'.</span>'}));
   }
+  if(upcomingOccurrences(60).length) s.append(upcomingSection());
   const txns=sortedTxns();
   s.append(h('div',{class:'sec-head'}, h('h2',{},'Recent'),
     txns.length>8?h('button',{class:'link',onclick:()=>go('list')},'See all'):null));
@@ -938,6 +965,92 @@ function screenHome(){
 }
 function sortedTxns(){
   return Object.values(state.transactions).sort((a,b)=> (b.date||'').localeCompare(a.date||'') || (b.createdAt||0)-(a.createdAt||0));
+}
+
+/* ---- upcoming recurring bills: calendar + list on Home ---- */
+let homeCalMonth=null;
+function clampDom(v){ return Math.min(Math.max(Math.floor(v)||1,1),28); }
+function dueDaysInMonth(ym){
+  const [y,m]=ym.split('-').map(Number); const map={};
+  for(const t of Object.values(state.recurring)){
+    if(!t.active) continue;
+    const dom=clampDom(t.dayOfMonth);
+    const ds=`${y}-${String(m).padStart(2,'0')}-${String(dom).padStart(2,'0')}`;
+    if(t.startDate && ds < t.startDate) continue;
+    (map[dom]=map[dom]||[]).push(t);
+  }
+  return map;
+}
+function upcomingOccurrences(days){
+  const today=new Date(); today.setHours(0,0,0,0);
+  const end=new Date(today); end.setDate(end.getDate()+days);
+  const out=[];
+  for(const t of Object.values(state.recurring)){
+    if(!t.active) continue;
+    const dom=clampDom(t.dayOfMonth);
+    let d=new Date(today.getFullYear(), today.getMonth(), dom);
+    for(let i=0;i<4;i++){
+      if(d>=today && d<=end){
+        const ds=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(dom).padStart(2,'0')}`;
+        if(!(t.startDate && ds < t.startDate)) out.push({date:new Date(d), tpl:t});
+      }
+      d=new Date(d.getFullYear(), d.getMonth()+1, dom);
+    }
+  }
+  out.sort((a,b)=>a.date-b.date);
+  return out;
+}
+function fmtUpcoming(date){
+  const t=new Date(); t.setHours(0,0,0,0);
+  const days=Math.round((date-t)/86400000);
+  if(days<=0) return 'Today';
+  if(days===1) return 'Tomorrow';
+  if(days<=21) return 'in '+days+' days';
+  return date.toLocaleDateString(undefined,{month:'short',day:'numeric'});
+}
+function upcomingSection(){
+  if(!homeCalMonth) homeCalMonth=ymOf(todayStr());
+  const [y,m]=homeCalMonth.split('-').map(Number);
+  const dueMap=dueDaysInMonth(homeCalMonth);
+  const startDow=new Date(y,m-1,1).getDay();
+  const daysInMonth=new Date(y,m,0).getDate();
+  const [ty,tm,td]=todayStr().split('-').map(Number);
+  const isThisMonth=(y===ty&&m===tm);
+  const isPastMonth=(y<ty||(y===ty&&m<tm));
+
+  const grid=h('div',{class:'cal-grid'});
+  ['S','M','T','W','T','F','S'].forEach(d=>grid.append(h('div',{class:'dow'},d)));
+  for(let i=0;i<startDow;i++) grid.append(h('div',{class:'cal-cell pad'},'·'));
+  for(let day=1;day<=daysInMonth;day++){
+    const due=!!dueMap[day];
+    const isToday=isThisMonth&&day===td;
+    const past=isPastMonth||(isThisMonth&&day<td);
+    const cls='cal-cell'+(isToday?' today':'')+(due?' due':'')+(past&&!isToday?' past':'');
+    grid.append(h('div',{class:cls}, String(day), due?h('span',{class:'dot'}):null));
+  }
+  const head=h('div',{class:'cal-head'},
+    h('button',{onclick:()=>{homeCalMonth=shiftMonth(homeCalMonth,-1);render();},html:icon(ICONS.left)}),
+    h('div',{class:'m'}, fmtMonth(homeCalMonth)),
+    h('button',{onclick:()=>{homeCalMonth=shiftMonth(homeCalMonth,1);render();},html:icon(ICONS.right)}));
+
+  const ups=upcomingOccurrences(60);
+  const list=h('div',{class:'up-list'});
+  ups.slice(0,5).forEach(o=>{
+    const c=catOf(o.tpl.category);
+    list.append(h('div',{class:'up-item',onclick:()=>openRecurringSheet(o.tpl)},
+      h('div',{class:'ic'}, c.em),
+      h('div',{class:'m'}, h('div',{class:'t'}, o.tpl.description||c.label),
+        h('div',{class:'s'}, memberName(o.tpl.paidBy)+' pays · '+o.date.toLocaleDateString(undefined,{month:'short',day:'numeric'}))),
+      h('div',{style:{textAlign:'right'}},
+        h('div',{class:'amt'}, money(o.tpl.amount)),
+        h('div',{class:'up-when'}, fmtUpcoming(o.date)))));
+  });
+
+  const wrap=h('div',{});
+  wrap.append(h('div',{class:'sec-head'}, h('h2',{},'Upcoming bills')));
+  wrap.append(h('div',{class:'cal'}, head, grid));
+  wrap.append(list);
+  return wrap;
 }
 function txRow(t,i){
   const meId=config.deviceMemberId;
