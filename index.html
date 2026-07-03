@@ -14,6 +14,7 @@
 <title>Tally — shared bills</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="preconnect" href="https://www.gstatic.com" />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
 <style>
 /* ============================================================
@@ -612,10 +613,15 @@ function localLoad(){
   }catch(e){ state.transactions={}; state.recurring={}; state.skipRecurring={}; }
 }
 function localPersist(){
-  localStorage.setItem(LOCAL_DATA_KEY, JSON.stringify({transactions:state.transactions, recurring:state.recurring, skipRecurring:state.skipRecurring}));
+  try{ localStorage.setItem(LOCAL_DATA_KEY, JSON.stringify({transactions:state.transactions, recurring:state.recurring, skipRecurring:state.skipRecurring})); }
+  catch(e){ toast('Device storage is full — change couldn\'t be saved. Export a backup, or turn on cloud sync.'); }
 }
 function localReceipts(){ try{ return JSON.parse(localStorage.getItem(LOCAL_RCPT_KEY))||{}; }catch(e){ return {}; } }
-function localSaveReceipt(id, data){ const r=localReceipts(); r[id]=data; localStorage.setItem(LOCAL_RCPT_KEY, JSON.stringify(r)); }
+function localSaveReceipt(id, data){
+  const r=localReceipts(); r[id]=data;
+  try{ localStorage.setItem(LOCAL_RCPT_KEY, JSON.stringify(r)); }
+  catch(e){ toast('Device storage is full — receipt photo not saved. Cloud sync gives you much more room.'); }
+}
 function localDelReceipt(id){ const r=localReceipts(); delete r[id]; localStorage.setItem(LOCAL_RCPT_KEY, JSON.stringify(r)); }
 
 /* ---- CLOUD backend (Firebase, loaded on demand) ---- */
@@ -765,6 +771,7 @@ function afterData(){
 function generateRecurring(){
   const now = new Date();
   const curY = now.getFullYear(), curM = now.getMonth(); // 0-based
+  let dirty=false;   // batch local persists — one write for the whole pass
   for(const tpl of Object.values(state.recurring)){
     if(!tpl.active) continue;
     const start = tpl.startDate ? new Date(tpl.startDate+'T00:00:00') : now;
@@ -787,11 +794,12 @@ function generateRecurring(){
         };
         state.transactions[id]=txn;
         if(isCloud()){ try{ cloud.fs.setDoc(hdoc('transactions',id), JSON.parse(JSON.stringify(txn))); }catch(e){} }
-        else localPersist();
+        else dirty=true;
       }
       m++; if(m>11){m=0;y++;}
     }
   }
+  if(dirty) localPersist();
 }
 
 /* ================================================================
@@ -1046,7 +1054,8 @@ function screenHome(){
   if(isCloud()) {} else {
     s.append(h('div',{class:'banner',style:{marginTop:'14px'},html:icon(ICONS.info)+' <span>Local mode — data lives on this device only. Turn on sync in Settings to share with '+escapeHtml(memberName(otherId(config.deviceMemberId)))+'.</span>'}));
   }
-  if(upcomingOccurrences().length) s.append(upcomingSection());
+  const ups=upcomingOccurrences();
+  if(ups.length) s.append(upcomingSection(ups));
   const txns=sortedTxns();
   s.append(h('div',{class:'sec-head'}, h('h2',{},'Recent'),
     txns.length>8?h('button',{class:'link',onclick:()=>go('list')},'See all'):null));
@@ -1155,7 +1164,7 @@ function splitSummary(amount, split, paidBy){
   if(t==='full'){ const ower=(split&&split.owedBy)||(paidBy==='m1'?'m2':'m1'); return ower===config.deviceMemberId?'You owe it all':memberName(ower)+' owes it all'; }
   return ms.map(m=>nameOrYou(m.id)+' '+money(sh[m.id])).join(' · ');
 }
-function upcomingSection(){
+function upcomingSection(ups){
   if(!homeCalMonth) homeCalMonth=ymOf(todayStr());
   const [y,m]=homeCalMonth.split('-').map(Number);
   const dueMap=dueDaysInMonth(homeCalMonth);
@@ -1180,7 +1189,7 @@ function upcomingSection(){
     h('div',{class:'m'}, fmtMonth(homeCalMonth)),
     h('button',{onclick:()=>{homeCalMonth=shiftMonth(homeCalMonth,1);render();},html:icon(ICONS.right)}));
 
-  const ups=upcomingOccurrences();
+  ups = ups || upcomingOccurrences();
   const list=h('div',{class:'up-list'});
   ups.slice(0,5).forEach(o=>{
     const c=catOf(o.tpl.category);
@@ -1216,7 +1225,7 @@ function txRow(t,i){
   const meId=config.deviceMemberId;
   if(t.type==='settlement'){
     const dir = t.from===meId ? `You paid ${memberName(t.to)}` : `${memberName(t.from)} paid you`;
-    return h('div',{class:'tx settlement',style:{animationDelay:(i*0.03)+'s'},onclick:()=>openSettleSheet(t)},
+    return h('div',{class:'tx settlement',style:{animationDelay:(Math.min(i,12)*0.03)+'s'},onclick:()=>openSettleSheet(t)},
       h('div',{class:'ic'},'🤝'),
       h('div',{class:'meta'}, h('div',{class:'t'},'Settle up'),
         h('div',{class:'s'}, dir+' · '+fmtDate(t.date), addedByTag(t))),
@@ -1229,7 +1238,7 @@ function txRow(t,i){
   const iPaid=t.paidBy===meId;
   const delta = iPaid ? (t.amount-myShare) : -myShare;  // + they owe me, - I owe
   const payerTxt = iPaid ? 'You paid' : memberName(t.paidBy)+' paid';
-  return h('div',{class:'tx',style:{animationDelay:(i*0.03)+'s'},onclick:()=>openExpenseSheet(t)},
+  return h('div',{class:'tx',style:{animationDelay:(Math.min(i,12)*0.03)+'s'},onclick:()=>openExpenseSheet(t)},
     h('div',{class:'ic'}, c.em),
     h('div',{class:'meta'},
       h('div',{class:'t'}, t.description||c.label),
@@ -1283,19 +1292,29 @@ function screenList(){
   const body=h('div',{}); s.append(body);
   if(!txns.length){ body.append(h('div',{class:'empty'}, h('p',{},'No matching activity.'))); }
   else {
-    let curYM=null;
-    txns.forEach((t,i)=>{
-      const ym=ymOf(t.date||'');
-      if(ym!==curYM){
-        curYM=ym;
-        const monthTotal=txns.filter(x=>x.type!=='settlement'&&ymOf(x.date||'')===ym).reduce((a,x)=>a+x.amount,0);
-        body.append(h('div',{class:'month-label'}, h('span',{},fmtMonth(ym)), h('span',{},money(monthTotal)+' spent')));
+    // precompute month totals in one pass
+    const monthTotals={};
+    txns.forEach(t=>{ if(t.type!=='settlement'){ const ym=ymOf(t.date||''); monthTotals[ym]=(monthTotals[ym]||0)+t.amount; } });
+    // progressive render: build AND append rows in chunks so first paint is instant
+    const CHUNK=250; let idx=0, curYM=null;
+    (function appendChunk(){
+      const frag=document.createDocumentFragment();
+      for(let n=0;n<CHUNK&&idx<txns.length;n++,idx++){
+        const t=txns[idx];
+        const ym=ymOf(t.date||'');
+        if(ym!==curYM){
+          curYM=ym;
+          frag.append(h('div',{class:'month-label'}, h('span',{},fmtMonth(ym)), h('span',{},money(monthTotals[ym]||0)+' spent')));
+        }
+        const row=txRow(t,idx);
+        const nm = t.type==='settlement' ? ('settle up '+(t.note||'')+' '+memberName(t.from)+' '+memberName(t.to)) : ((t.description||'')+' '+catOf(t.category).label+' '+memberName(t.paidBy));
+        row.dataset.search=nm.toLowerCase();
+        frag.append(row);
       }
-      const row=txRow(t,i);
-      const nm = t.type==='settlement' ? ('settle up '+(t.note||'')+' '+memberName(t.from)+' '+memberName(t.to)) : ((t.description||'')+' '+catOf(t.category).label+' '+memberName(t.paidBy));
-      row.dataset.search=nm.toLowerCase();
-      body.append(row);
-    });
+      body.append(frag);
+      if(listFilter.q) filterListDOM(body, listFilter.q);
+      if(idx<txns.length) setTimeout(appendChunk,0);
+    })();
   }
   const applySearch=()=>{ listFilter.q=searchI.value; filterListDOM(body, searchI.value); };
   searchI.addEventListener('input', applySearch);

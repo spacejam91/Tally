@@ -1,23 +1,36 @@
 rules_version = '2';
 
 // ─────────────────────────────────────────────────────────────
-// Tally — Firestore security rules
-// Paste these into: Firestore Database → Rules → Publish
+// Tally — Firestore security rules (v2, hardened)
+// Paste into: Firestore Database → Rules → Publish
 //
-// Model: a "household" is one shared space for the two of you,
-// keyed by the household code you both type in. Any signed-in
-// (anonymous) user who knows the code can read/write that
-// household. So: keep your household code long and private.
+// Model: a "household" is one shared space keyed by the private
+// household code. Security properties:
+//   • `get` (single doc by exact path) is allowed for signed-in
+//     users — you must already KNOW the code.
+//   • `list` on the households collection is DENIED — nobody can
+//     enumerate household codes to discover data.
+//   • Subcollections are only reachable through a path that
+//     contains the code, and no {path=**} rule exists, so
+//     collection-group queries across households are denied.
+// Keep your household code long and private — it is the key.
 // ─────────────────────────────────────────────────────────────
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Everything under a household requires you to be signed in.
     match /households/{householdCode} {
-      allow read, write: if request.auth != null;
+      // exact-path access only; the collection cannot be listed
+      allow get, create, update, delete: if request.auth != null;
+      allow list: if false;
 
-      match /{document=**} {
+      match /transactions/{docId} {
+        allow read, write: if request.auth != null;
+      }
+      match /recurring/{docId} {
+        allow read, write: if request.auth != null;
+      }
+      match /receipts/{docId} {
         allow read, write: if request.auth != null;
       }
     }
