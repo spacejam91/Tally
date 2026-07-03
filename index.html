@@ -1056,10 +1056,13 @@ function screenSettings(){
   s.append(h('div',{class:'sec-head'}, h('h2',{},'Settings')));
   const ms=members();
   s.append(h('div',{class:'card-list'},
-    h('div',{class:'set-row'}, h('div',{class:'lbl'},'Sync', h('small',{}, isCloud()?('Cloud · household “'+config.firebase.household+'”'):'This device only')),
+    h('div',{class:'set-row'}, h('div',{class:'lbl'},'Sync', h('small',{}, isCloud()?'Live — both phones share one space':'This device only')),
       h('span',{class:'pill '+(isCloud()?'cloud':'local')}, isCloud()?'Cloud':'Local')),
+    isCloud() ? h('div',{class:'set-row tap',onclick:()=>openHouseholdSheet()},
+      h('div',{class:'lbl'},'Household code', h('small',{},'The shared key — '+escapeHtml(memberName(otherId(config.deviceMemberId)))+' must use the same one. Tap to view, copy or change.')),
+      h('span',{class:'val',style:{maxWidth:'42%',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}, config.firebase.household)) : null,
     h('div',{class:'set-row tap',onclick:()=>{ renderOnboarding(); },},
-      h('div',{class:'lbl'}, isCloud()?'Manage sync / Firebase':'Turn on cross-device sync', h('small',{},'Edit names, currency & Firebase config')),
+      h('div',{class:'lbl'}, isCloud()?'Manage sync':'Turn on cross-device sync', h('small',{},'Change names, currency & sync setup')),
       h('span',{html:icon(ICONS.right),style:{color:'var(--muted-txt)'}})),
   ));
   s.append(h('div',{class:'card-list'},
@@ -1086,6 +1089,33 @@ function screenSettings(){
   ));
   s.append(h('div',{style:{textAlign:'center',color:'var(--muted-txt)',fontSize:'12px',marginTop:'10px'}},'Tally · made with care ◑'));
   return s;
+}
+
+/* ---- view / copy / change the shared household code ---- */
+function openHouseholdSheet(){
+  const current = config.firebase.household;
+  const partner = memberName(otherId(config.deviceMemberId));
+  const inp=h('input',{class:'input',value:current,autocapitalize:'off',autocorrect:'off',spellcheck:'false',style:{fontFamily:'var(--mono)'}});
+  const copyBtn=h('button',{class:'btn btn-ghost',type:'button',style:{width:'100%'},onclick:async()=>{
+    const code=inp.value.trim();
+    try{ await navigator.clipboard.writeText(code); toast('Code copied — send it to '+partner); }
+    catch(e){ inp.focus(); inp.select(); toast('Press and hold to copy the code'); }
+  }}, h('span',{html:icon(ICONS.clip)}),'Copy code');
+  buildSheet('Household code', [
+    h('div',{class:'banner',html:icon(ICONS.info)+' <span>This is the shared key to your data. You and '+escapeHtml(partner)+' must use the <b>exact same code</b>. Changing it points <b>this device</b> at a different shared space — so change it on both phones together.</span>'}),
+    h('div',{class:'field'}, h('label',{},'Code'), inp),
+    copyBtn
+  ], async()=>{
+    const code=inp.value.trim();
+    if(code.length<6){ toast('Use at least 6 characters.'); return false; }
+    if(code===current){ return true; }
+    if(!confirm('Point this device at household “'+code+'”?\n\nMake sure '+partner+' uses the same code, or you\'ll be in separate spaces.')) return false;
+    config.firebase.household=code; saveConfig();
+    toast('Reconnecting…');
+    try{ await cloudConnect(); render(); toast('Household code updated'); }
+    catch(e){ toast('Couldn\'t reconnect — double-check the code.'); }
+    return true;
+  });
 }
 
 /* ================================================================
