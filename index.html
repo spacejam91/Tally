@@ -7,6 +7,10 @@
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <meta name="apple-mobile-web-app-title" content="Tally" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="format-detection" content="telephone=no" />
+<link rel="apple-touch-icon" href="apple-touch-icon.png" />
+<link rel="icon" type="image/png" href="apple-touch-icon.png" />
 <title>Tally — shared bills</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -40,7 +44,8 @@
   --safe-b: env(safe-area-inset-bottom, 0px);
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
-html,body{margin:0;padding:0;}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%;}
+html,body{margin:0;padding:0;overflow-x:hidden;overscroll-behavior-y:none;}
 body{
   font-family:var(--sans);
   color:var(--ink);
@@ -59,8 +64,9 @@ body::before{
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
 }
 #app{position:relative;z-index:1;max-width:540px;margin:0 auto;min-height:100dvh;display:flex;flex-direction:column;}
-button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit;}
-input,select,textarea{font-family:inherit;font-size:16px;color:var(--ink);}
+button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit;-webkit-appearance:none;appearance:none;touch-action:manipulation;-webkit-user-select:none;user-select:none;}
+input,select,textarea{font-family:inherit;font-size:16px;color:var(--ink);-webkit-appearance:none;appearance:none;}
+.tx,.set-row,.nav a,.chip,.rec,.receipt-drop,.month-label{touch-action:manipulation;}
 h1,h2,h3{margin:0;font-family:var(--serif);font-weight:600;letter-spacing:-.01em;}
 .mono{font-family:var(--mono);font-variant-numeric:tabular-nums;letter-spacing:-.02em;}
 .hide{display:none !important;}
@@ -157,7 +163,7 @@ main{flex:1;padding:8px 16px 120px;}
 .scrim{position:fixed;inset:0;z-index:60;background:rgba(40,30,15,.42);backdrop-filter:blur(2px);
   display:flex;align-items:flex-end;justify-content:center;animation:fade .2s;}
 @media(min-width:560px){.scrim{align-items:center;}}
-.sheet{width:100%;max-width:540px;max-height:94dvh;overflow-y:auto;background:var(--paper-2);
+.sheet{width:100%;max-width:540px;max-height:94dvh;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;background:var(--paper-2);
   border-radius:26px 26px 0 0;border:1px solid var(--line);box-shadow:0 -10px 40px -10px rgba(60,40,10,.4);
   animation:slideup .32s cubic-bezier(.2,.9,.3,1) both;padding:8px 20px calc(26px + var(--safe-b));}
 @media(min-width:560px){.sheet{border-radius:24px;animation:rise .3s both;}}
@@ -174,6 +180,8 @@ main{flex:1;padding:8px 16px 120px;}
 .field > label{display:block;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-txt);margin:0 2px 7px;}
 .input, textarea.input, select.input{width:100%;background:var(--card);border:1px solid var(--line-strong);border-radius:12px;
   padding:13px 14px;font-size:16px;outline:none;transition:border .15s, box-shadow .15s;}
+/* custom chevron for selects (native arrow removed by appearance:none) — placed after .input so its background wins */
+select.input{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238b8172' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 13px center;background-size:18px;padding-right:40px;}
 .input:focus{border-color:var(--clay);box-shadow:0 0 0 3px rgba(194,91,58,.13);}
 textarea.input{resize:vertical;min-height:64px;}
 .amount-field{position:relative;}
@@ -795,7 +803,7 @@ function renderOnboarding(){
     ),
     h('button',{class:'btn btn-primary',style:{width:'100%',padding:'15px'},onclick:async()=>{
       const n1=nameMe.value.trim()||'Aaron', n2=namePartner.value.trim()||'Anne';
-      const newCfg={ members:[{id:'m1',name:n1},{id:'m2',name:n2}], currency:currency.value, deviceMemberId:(config&&config.deviceMemberId)||null, firebase:null };
+      const newCfg={ members:[{id:'m1',name:n1},{id:'m2',name:n2}], currency:currency.value, deviceName:n1, deviceMemberId:(config&&config.deviceMemberId)||null, firebase:null };
       if(syncMode==='cloud'){
         let parsed;
         if(hasBakedFB()){
@@ -832,7 +840,7 @@ function renderPersonPicker(){
     h('div',{class:'lede'},'Who\'s using this device? (You can switch anytime in Settings.)'),
     h('div',{class:'step-card'},
       h('div',{class:'payer'},
-        ...ms.map((m,i)=>h('button',{onclick:()=>{config.deviceMemberId=m.id; saveConfig(); render();}},
+        ...ms.map((m,i)=>h('button',{onclick:()=>{config.deviceMemberId=m.id; config.deviceName=m.name; saveConfig(); render();}},
           h('span',{class:'av',style:{background:AV_COLORS[i]}}, initials(m.name)),
           m.name))
       )
@@ -845,7 +853,14 @@ function renderPersonPicker(){
    ================================================================ */
 function render(){
   if(!config){ renderOnboarding(); return; }
-  if(!config.deviceMemberId){ renderPersonPicker(); return; }
+  if(!config.deviceMemberId){
+    // auto-pick this device's person from the "You" name they entered at setup;
+    // only fall back to the picker if it can't be matched to a member.
+    const dn=(config.deviceName||'').trim().toLowerCase();
+    const match = dn ? members().find(m=>(m.name||'').trim().toLowerCase()===dn) : null;
+    if(match){ config.deviceMemberId=match.id; saveConfig(); }
+    else { renderPersonPicker(); return; }
+  }
   app.innerHTML='';
   app.append(topbar());
   const main=h('main',{});
@@ -1070,7 +1085,7 @@ function screenSettings(){
       h('span',{class:'av',style:{width:'30px',height:'30px',borderRadius:'50%',display:'grid',placeItems:'center',color:'#fff',fontFamily:'var(--serif)',fontWeight:'700',background:AV_COLORS[i]}}, initials(m.name)),
       h('div',{class:'lbl'}, m.name, h('small',{}, m.id===config.deviceMemberId?'This is you on this device':' ')),
       m.id===config.deviceMemberId?h('span',{class:'pill cloud'},'You'):
-        h('button',{class:'btn btn-ghost btn-sm',onclick:()=>{config.deviceMemberId=m.id;saveConfig();toast('Switched to '+m.name);render();}},'I\'m '+m.name)
+        h('button',{class:'btn btn-ghost btn-sm',onclick:()=>{config.deviceMemberId=m.id;config.deviceName=m.name;saveConfig();toast('Switched to '+m.name);render();}},'I\'m '+m.name)
     )),
     h('div',{class:'set-row'}, h('div',{class:'lbl'},'Currency'), h('span',{class:'val'}, (state.meta?.currency||config.currency)))
   ));
@@ -1507,7 +1522,7 @@ async function boot(justOnboarded){
   } else {
     localLoad(); afterData();
   }
-  if(!config.deviceMemberId){ renderPersonPicker(); }
+  render();   // render() auto-picks the device person, or shows the picker if it can't
 }
 
 window.addEventListener('DOMContentLoaded', ()=>boot(false));
