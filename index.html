@@ -698,7 +698,7 @@ function generateRecurring(){
     if(startIdx<minIdx){ y=Math.floor(minIdx/12); m=minIdx%12; }
     let guard=0;
     while((y<curY || (y===curY && m<=curM)) && guard++<MAX_BACK){
-      const dom = Math.min(Math.max(Math.floor(tpl.dayOfMonth)||1, 1), 28);
+      const dom = domInMonth(tpl.dayOfMonth, y, m);
       const dateStr = `${y}-${String(m+1).padStart(2,'0')}-${String(dom).padStart(2,'0')}`;
       const id = `rec_${tpl.id}_${y}${String(m+1).padStart(2,'0')}`;
       if(!state.transactions[id] && !(state.skipRecurring && state.skipRecurring[id]) && new Date(dateStr+'T00:00:00') <= now){
@@ -974,12 +974,14 @@ function sortedTxns(){
 
 /* ---- upcoming recurring bills: calendar + list on Home ---- */
 let homeCalMonth=null;
-function clampDom(v){ return Math.min(Math.max(Math.floor(v)||1,1),28); }
+function clampDom(v){ return Math.min(Math.max(Math.floor(v)||1,1),31); }   // stored day, 1–31
+// materialize the day for a specific month, falling back to that month's last day (e.g. 31 -> Feb 28)
+function domInMonth(day, y, m0){ const last=new Date(y, m0+1, 0).getDate(); return Math.min(clampDom(day), last); }
 function dueDaysInMonth(ym){
   const [y,m]=ym.split('-').map(Number); const map={};
   for(const t of Object.values(state.recurring)){
     if(!t.active) continue;
-    const dom=clampDom(t.dayOfMonth);
+    const dom=domInMonth(t.dayOfMonth, y, m-1);
     const ds=`${y}-${String(m).padStart(2,'0')}-${String(dom).padStart(2,'0')}`;
     if(t.startDate && ds < t.startDate) continue;
     (map[dom]=map[dom]||[]).push(t);
@@ -992,14 +994,15 @@ function upcomingOccurrences(monthsAhead){
   const out=[];
   for(const t of Object.values(state.recurring)){
     if(!t.active) continue;
-    const dom=clampDom(t.dayOfMonth);
-    let d=new Date(today.getFullYear(), today.getMonth(), dom);
+    let y=today.getFullYear(), m0=today.getMonth();
     for(let i=0;i<=monthsAhead;i++){
+      const dom=domInMonth(t.dayOfMonth, y, m0);
+      const d=new Date(y, m0, dom);
       if(d>=today){
-        const ds=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(dom).padStart(2,'0')}`;
-        if(!(t.startDate && ds < t.startDate)) out.push({date:new Date(d), tpl:t});
+        const ds=`${y}-${String(m0+1).padStart(2,'0')}-${String(dom).padStart(2,'0')}`;
+        if(!(t.startDate && ds < t.startDate)) out.push({date:d, tpl:t});
       }
-      d=new Date(d.getFullYear(), d.getMonth()+1, dom);
+      m0++; if(m0>11){m0=0;y++;}
     }
   }
   out.sort((a,b)=>a.date-b.date);
@@ -1486,7 +1489,7 @@ function openRecurringSheet(existing){
   };
   const descI=h('input',{class:'input',placeholder:'e.g. Rent, Netflix',value:data.description||''});
   const amountI=h('input',{class:'input',type:'text',inputmode:'decimal',value:data.amount?String(data.amount):''});
-  const dayI=h('input',{class:'input',type:'number',min:'1',max:'28',value:String(data.dayOfMonth||1)});
+  const dayI=h('input',{class:'input',type:'number',min:'1',max:'31',value:String(data.dayOfMonth||1)});
   const startI=h('input',{class:'input',type:'date',value:data.startDate});
 
   const catWrap=h('div',{class:'chips'});
@@ -1525,6 +1528,7 @@ function openRecurringSheet(existing){
     h('div',{class:'row2'},
       h('div',{class:'field'}, h('label',{},'Day of month'), dayI),
       h('div',{class:'field'}, h('label',{},'Starting'), startI)),
+    h('div',{style:{fontSize:'12px',color:'var(--muted-txt)',margin:'-8px 2px 14px'}},'Use 31 for the last day — it falls back in shorter months (Feb → 28/29).'),
     h('div',{class:'field'}, h('label',{},'Category'), catWrap),
     h('div',{class:'field'}, h('label',{},'Paid by'), payerWrap),
     h('div',{class:'field'}, h('label',{},'Split'), splitSeg, rSplitBody),
@@ -1533,7 +1537,7 @@ function openRecurringSheet(existing){
     if(!data.description.trim() && !descI.value.trim()){ toast('Give it a name.'); return false; }
     if(!amt||amt<=0){ toast('Enter an amount.'); return false; }
     data.description=descI.value.trim(); data.amount=Math.round(amt*100)/100;
-    data.dayOfMonth=Math.min(28,Math.max(1,Number(dayI.value)||1));
+    data.dayOfMonth=clampDom(dayI.value);
     data.startDate=startI.value||todayStr();
     await persistRecurring(data);
     generateRecurring(); render();
