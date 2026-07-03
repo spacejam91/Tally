@@ -347,6 +347,18 @@ details.help code{font-family:var(--mono);font-size:12px;background:var(--paper)
   background:var(--ink);color:var(--paper-2);padding:12px 20px;border-radius:13px;font-weight:600;font-size:14px;
   z-index:90;opacity:0;transition:.28s;box-shadow:0 8px 24px -8px rgba(0,0,0,.5);pointer-events:none;max-width:88%;text-align:center;}
 #toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+#toast.act{pointer-events:auto;}
+#toast button.undo{margin-left:12px;background:var(--paper-2);color:var(--ink);font-weight:800;font-size:13px;padding:5px 13px;border-radius:9px;}
+
+/* PIN lock screen */
+.lock{position:fixed;inset:0;z-index:300;background:var(--paper);display:flex;align-items:center;justify-content:center;padding:24px;}
+.lockbox{width:100%;max-width:320px;text-align:center;}
+.lockbox .mark{width:54px;height:54px;border-radius:15px;background:linear-gradient(150deg,var(--clay),var(--clay-deep));display:grid;place-items:center;color:#fff;font-size:28px;margin:0 auto 14px;font-family:var(--serif);font-weight:700;}
+.lockbox h2{font-size:22px;margin:0 0 16px;}
+.lockbox input.pin{text-align:center;font-family:var(--mono);font-size:26px;letter-spacing:.4em;margin-bottom:12px;}
+.lockbox .forgot{margin-top:16px;font-size:13px;color:var(--muted-txt);font-weight:600;}
+.shake{animation:shakeX .4s;}
+@keyframes shakeX{0%,100%{transform:none}20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}
 .banner{background:#fdf3ee;border:1px solid #eccdc0;color:var(--clay-deep);border-radius:12px;padding:11px 14px;font-size:13px;font-weight:600;margin:0 0 12px;display:flex;gap:8px;align-items:flex-start;}
 .banner svg{width:18px;height:18px;flex:none;margin-top:1px;}
 
@@ -699,6 +711,15 @@ async function removeTransaction(id){
   } else { localPersist(); localDelReceipt(id); }
   render();
 }
+// bring back a just-deleted transaction (undo): clears any recurring tombstone, re-persists receipt
+async function restoreTransaction(t, receipt){
+  if(t.recurringId && state.skipRecurring && state.skipRecurring[t.id]){
+    delete state.skipRecurring[t.id];
+    if(isCloud()){ try{ await cloud.fs.setDoc(cloud.fs.doc(cloud.db,'households',cloud.hid), {skipRecurring:{[t.id]: cloud.fs.deleteField()}}, {merge:true}); }catch(e){} }
+  }
+  await persistTransaction(t, receipt||undefined);
+  toast('Restored');
+}
 async function persistRecurring(t){
   state.recurring[t.id]=t;
   if(isCloud()) await cloud.fs.setDoc(hdoc('recurring', t.id), JSON.parse(JSON.stringify(t)));
@@ -808,8 +829,15 @@ async function processReceipt(file){
    ================================================================ */
 let toastT;
 function toast(msg){
-  const t=$('#toast'); t.textContent=msg; t.classList.add('show');
+  const t=$('#toast'); t.textContent=msg; t.classList.remove('act'); t.classList.add('show');
   clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'), 2600);
+}
+function toastUndo(msg, onUndo){
+  const t=$('#toast'); t.innerHTML='';
+  t.append(document.createTextNode(msg));
+  t.append(h('button',{class:'undo',onclick:()=>{ t.classList.remove('show','act'); clearTimeout(toastT); onUndo(); }},'Undo'));
+  t.classList.add('show','act');
+  clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show','act'), 6000);
 }
 
 /* ================================================================
@@ -1143,6 +1171,13 @@ function upcomingSection(){
   wrap.append(list);
   return wrap;
 }
+// show who logged an entry — only when it wasn't you (that's the useful signal)
+function addedByTag(t){
+  const cb=t.createdBy;
+  if(!cb || cb===config.deviceMemberId) return null;
+  const label = cb==='system' ? '🔁 auto' : memberName(cb)+' added';
+  return h('span',{style:{opacity:.75,whiteSpace:'nowrap'}}, ' · '+label);
+}
 function txRow(t,i){
   const meId=config.deviceMemberId;
   if(t.type==='settlement'){
@@ -1150,7 +1185,7 @@ function txRow(t,i){
     return h('div',{class:'tx settlement',style:{animationDelay:(i*0.03)+'s'},onclick:()=>openSettleSheet(t)},
       h('div',{class:'ic'},'🤝'),
       h('div',{class:'meta'}, h('div',{class:'t'},'Settle up'),
-        h('div',{class:'s'}, dir+' · '+fmtDate(t.date))),
+        h('div',{class:'s'}, dir+' · '+fmtDate(t.date), addedByTag(t))),
       h('div',{class:'amt'}, h('div',{class:'n'}, money(t.amount)), h('div',{class:'l'},'payment'))
     );
   }
@@ -1166,6 +1201,7 @@ function txRow(t,i){
       h('div',{class:'t'}, t.description||c.label),
       h('div',{class:'s'},
         payerTxt+' '+money(t.amount)+' · '+fmtDate(t.date),
+        addedByTag(t),
         (t.hasReceipt||t.thumb)?h('span',{class:'clip',html:icon(ICONS.clip)}):null)
     ),
     h('div',{class:'amt'},
@@ -1375,8 +1411,13 @@ function screenSettings(){
   s.append(h('div',{class:'card-list'}, h('div',{class:'set-row',style:{flexDirection:'column',alignItems:'stretch',gap:'11px'}},
     h('div',{class:'lbl'},'Appearance', h('small',{},'Auto follows your phone\'s light / dark setting')), themeSeg)));
   s.append(h('div',{class:'card-list'},
+    h('div',{class:'set-row tap',onclick:openPinSheet},
+      h('div',{class:'lbl'},'App lock', h('small',{}, config.pin?'PIN required when opening — this device only':'Require a PIN to open Tally on this device')),
+      h('span',{class:'pill '+(config.pin?'cloud':'local')}, config.pin?'On':'Off'))));
+  s.append(h('div',{class:'card-list'},
     h('div',{class:'set-row tap',onclick:exportData}, h('div',{class:'lbl'},'Export backup', h('small',{},'Download all data as a JSON file')), h('span',{html:icon(ICONS.down),style:{color:'var(--muted-txt)'}})),
     h('div',{class:'set-row tap',onclick:exportCSV}, h('div',{class:'lbl'},'Export CSV', h('small',{},'Spreadsheet of every transaction')), h('span',{html:icon(ICONS.down),style:{color:'var(--muted-txt)'}})),
+    h('div',{class:'set-row tap',onclick:exportICS}, h('div',{class:'lbl'},'Bill reminders', h('small',{},'Add your recurring bills to your phone calendar with alerts')), h('span',{html:icon(ICONS.down),style:{color:'var(--muted-txt)'}})),
     h('div',{class:'set-row tap',onclick:importData}, h('div',{class:'lbl'},'Import backup', h('small',{},'Restore from a JSON file')), h('span',{html:icon(ICONS.right),style:{color:'var(--muted-txt)'}}))
   ));
   s.append(h('div',{class:'card-list'},
@@ -1390,6 +1431,72 @@ function screenSettings(){
   ));
   s.append(h('div',{style:{textAlign:'center',color:'var(--muted-txt)',fontSize:'12px',marginTop:'10px'}},'Tally · made with care ◑'));
   return s;
+}
+
+/* ---- PIN lock (per device) ---- */
+async function pinHash(salt, pin){
+  try{
+    const buf=await crypto.subtle.digest('SHA-256', new TextEncoder().encode(salt+'|'+pin));
+    return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');
+  }catch(e){ // non-secure-context fallback
+    let hh=5381; const s=salt+'|'+pin;
+    for(let i=0;i<s.length;i++){ hh=((hh<<5)+hh+s.charCodeAt(i))>>>0; }
+    return 'djb2:'+hh.toString(16);
+  }
+}
+function showLock(){
+  if(!config||!config.pin||document.querySelector('.lock')) return;
+  const inp=h('input',{class:'input pin',type:'password',inputmode:'numeric',autocomplete:'off',maxlength:'8',placeholder:'••••'});
+  const box=h('div',{class:'lockbox'});
+  async function tryUnlock(){
+    const hv=await pinHash(config.pin.salt, inp.value.trim());
+    if(hv===config.pin.hash){ ov.remove(); }
+    else{ inp.value=''; box.classList.add('shake'); setTimeout(()=>box.classList.remove('shake'),450); toast('Wrong PIN'); inp.focus(); }
+  }
+  inp.addEventListener('keydown',e=>{ if(e.key==='Enter') tryUnlock(); });
+  box.append(
+    h('div',{class:'mark'},'◑'),
+    h('h2',{},'Enter PIN'),
+    inp,
+    h('button',{class:'btn btn-primary',style:{width:'100%'},onclick:tryUnlock},'Unlock'),
+    h('button',{class:'forgot',onclick:()=>{
+      if(confirm('Forgot your PIN?\n\nThis resets Tally on THIS device so you can set it up again. Cloud-synced data is safe; local-only data on this device would be lost.')){
+        localStorage.removeItem(CFG_KEY); localStorage.removeItem(LOCAL_DATA_KEY); localStorage.removeItem(LOCAL_RCPT_KEY);
+        location.reload();
+      }
+    }},'Forgot PIN?')
+  );
+  const ov=h('div',{class:'lock'}, box);
+  document.body.append(ov);
+  setTimeout(()=>inp.focus(),60);
+}
+function openPinSheet(){
+  if(config.pin){
+    const cur=h('input',{class:'input pin',type:'password',inputmode:'numeric',maxlength:'8',placeholder:'Current PIN'});
+    buildSheet('App lock', [
+      h('div',{class:'banner',html:icon(ICONS.info)+' <span>A PIN is set on this device. Enter it and Save to turn the lock off.</span>'}),
+      h('div',{class:'field'}, h('label',{},'Current PIN'), cur)
+    ], async()=>{
+      const hv=await pinHash(config.pin.salt, cur.value.trim());
+      if(hv!==config.pin.hash){ toast('Wrong PIN'); return false; }
+      delete config.pin; saveConfig(); toast('App lock turned off'); render(); return true;
+    });
+  } else {
+    const p1=h('input',{class:'input pin',type:'password',inputmode:'numeric',maxlength:'8',placeholder:'4–8 digits'});
+    const p2=h('input',{class:'input pin',type:'password',inputmode:'numeric',maxlength:'8',placeholder:'Repeat PIN'});
+    buildSheet('Set app lock', [
+      h('div',{class:'banner',html:icon(ICONS.info)+' <span>Tally will ask for this PIN when it opens on this device (set it separately on each phone). If you forget it you\'ll need to reset the device — cloud-synced data stays safe.</span>'}),
+      h('div',{class:'field'}, h('label',{},'New PIN'), p1),
+      h('div',{class:'field'}, h('label',{},'Repeat PIN'), p2)
+    ], async()=>{
+      const a=p1.value.trim(), b=p2.value.trim();
+      if(!/^\d{4,8}$/.test(a)){ toast('PIN must be 4–8 digits.'); return false; }
+      if(a!==b){ toast('PINs don\'t match.'); return false; }
+      const salt=rid();
+      config.pin={salt, hash:await pinHash(salt,a)};
+      saveConfig(); toast('App lock on'); render(); return true;
+    });
+  }
 }
 
 /* ---- view / copy / change the shared household code ---- */
@@ -1575,8 +1682,12 @@ function openExpenseSheet(existing){
     toast(editing?'Saved':'Expense added');
     return true;
   }, editing?async()=>{
-    if(confirm('Delete this expense?')){ await removeTransaction(data.id); toast('Deleted'); return true; }
-    return false;
+    const snapshot=JSON.parse(JSON.stringify(state.transactions[data.id]||data));
+    let receipt=null;
+    if(snapshot.hasReceipt||snapshot.thumb){ try{ receipt=await fetchReceipt(data.id); }catch(e){} }
+    await removeTransaction(data.id);
+    toastUndo('Expense deleted', ()=>restoreTransaction(snapshot, receipt));
+    return true;
   }:null);
 }
 
@@ -1629,7 +1740,12 @@ function openSettleSheet(existing){
     await persistTransaction(data);
     toast('Payment recorded');
     return true;
-  }, editing?async()=>{ if(confirm('Delete this payment?')){ await removeTransaction(data.id); toast('Deleted'); return true; } return false; }:null);
+  }, editing?async()=>{
+    const snapshot=JSON.parse(JSON.stringify(state.transactions[data.id]||data));
+    await removeTransaction(data.id);
+    toastUndo('Payment deleted', ()=>restoreTransaction(snapshot, null));
+    return true;
+  }:null);
 }
 
 /* ================================================================
@@ -1774,6 +1890,43 @@ function exportCSV(){
   const a=h('a',{href:URL.createObjectURL(blob),download:'tally-'+todayStr()+'.csv'}); a.click();
   toast('CSV downloaded');
 }
+/* calendar (.ics) of recurring bills — native phone-calendar alerts, no server needed */
+function exportICS(){
+  const bills=Object.values(state.recurring).filter(t=>t.active);
+  if(!bills.length){ toast('Add a recurring bill first.'); return; }
+  const pad=n=>String(n).padStart(2,'0');
+  const esc=s=>String(s||'').replace(/\\/g,'\\\\').replace(/;/g,'\\;').replace(/,/g,'\\,');
+  const now=new Date();
+  const stamp=`${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}T${pad(now.getHours())}${pad(now.getMinutes())}00`;
+  const lines=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Tally//bills//EN','CALSCALE:GREGORIAN','X-WR-CALNAME:Tally bills'];
+  const today0=new Date(); today0.setHours(0,0,0,0);
+  bills.forEach(t=>{
+    // first occurrence: today or later, respecting startDate
+    let y=today0.getFullYear(), m0=today0.getMonth();
+    const sd=t.startDate?new Date(t.startDate+'T00:00:00'):null;
+    if(sd && sd>today0){ y=sd.getFullYear(); m0=sd.getMonth(); }
+    let first=new Date(y, m0, domInMonth(t.dayOfMonth,y,m0));
+    if(first<today0 || (sd&&first<sd)){ m0++; if(m0>11){m0=0;y++;} first=new Date(y, m0, domInMonth(t.dayOfMonth,y,m0)); }
+    const d=clampDom(t.dayOfMonth);
+    const rrule = d<=28 ? `FREQ=MONTHLY;BYMONTHDAY=${d}`
+      : `FREQ=MONTHLY;BYMONTHDAY=${Array.from({length:d-27},(_,i)=>28+i).join(',')};BYSETPOS=-1`; // 31 -> last day in short months
+    const summary=esc((t.description||catOf(t.category).label)+' due · '+money(t.amount));
+    lines.push('BEGIN:VEVENT',
+      `UID:${t.id}@tally`,
+      `DTSTAMP:${stamp}`,
+      `DTSTART:${first.getFullYear()}${pad(first.getMonth()+1)}${pad(first.getDate())}T090000`,
+      `RRULE:${rrule}`,
+      `SUMMARY:${summary}`,
+      `DESCRIPTION:${esc(memberName(t.paidBy)+' pays · '+splitSummary(t.amount,t.split,t.paidBy)+' · from Tally')}`,
+      'BEGIN:VALARM','ACTION:DISPLAY',`DESCRIPTION:${summary}`,'TRIGGER:-PT0M','END:VALARM',
+      'BEGIN:VALARM','ACTION:DISPLAY',`DESCRIPTION:${esc('Tomorrow: ')+summary}`,'TRIGGER:-P1D','END:VALARM',
+      'END:VEVENT');
+  });
+  lines.push('END:VCALENDAR');
+  const blob=new Blob([lines.join('\r\n')],{type:'text/calendar;charset=utf-8'});
+  const a=h('a',{href:URL.createObjectURL(blob),download:'tally-bills.ics'}); a.click();
+  toast('Calendar file downloaded — open it to add the alerts');
+}
 function importData(){
   const inp=h('input',{type:'file',accept:'application/json,.json',style:{display:'none'}});
   inp.addEventListener('change',()=>{
@@ -1819,6 +1972,7 @@ function escapeHtml(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':
 async function boot(justOnboarded){
   loadConfig();
   applyTheme();
+  showLock();   // no-op unless a PIN is set on this device
   if(!config){ renderOnboarding(); return; }
   if(isCloud()){
     try{
@@ -1838,6 +1992,12 @@ async function boot(justOnboarded){
 }
 
 if(window.matchMedia){ try{ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', ()=>{ if(((config&&config.theme)||'auto')==='auto') applyTheme(); }); }catch(e){} }
+// re-lock after 5 min in the background
+let hiddenAt=0;
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden) hiddenAt=Date.now();
+  else if(config&&config.pin&&hiddenAt&&Date.now()-hiddenAt>5*60*1000) showLock();
+});
 window.addEventListener('DOMContentLoaded', ()=>boot(false));
 </script>
 </body>
