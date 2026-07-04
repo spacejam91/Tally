@@ -723,11 +723,18 @@ async function removeTransaction(id){
   const needTomb = t.recurringId && (t.date||'') <= todayStr();
   if(needTomb){ state.skipRecurring = state.skipRecurring||{}; state.skipRecurring[id]=true; }
   if(isCloud()){
-    if(needTomb) await cloud.fs.setDoc(cloud.fs.doc(cloud.db,'households',cloud.hid), {skipRecurring:{[id]:true}}, {merge:true});
-    await cloud.fs.setDoc(hdoc('trash', id), JSON.parse(JSON.stringify(entry)));
+    if(needTomb){ try{ await cloud.fs.setDoc(cloud.fs.doc(cloud.db,'households',cloud.hid), {skipRecurring:{[id]:true}}, {merge:true}); }catch(e){} }
+    // trash write is best-effort: a failure (e.g. stale rules) must never abort the actual delete
+    try{ await cloud.fs.setDoc(hdoc('trash', id), JSON.parse(JSON.stringify(entry))); }catch(e){ console.error('trash write failed', e); }
     await cloud.fs.deleteDoc(hdoc('transactions', id));
   } else { localPersist(); }
   render();
+}
+// hard delete: no trash, no tombstone — for transient artifacts (un-log, canceled paid-backs)
+async function hardRemoveTransaction(id){
+  delete state.transactions[id]; delete receiptCache[id];
+  if(isCloud()){ try{ await cloud.fs.deleteDoc(hdoc('transactions', id)); }catch(e){} }
+  else localPersist();
 }
 // bring a trashed transaction back — clears any tombstone; the receipt was never deleted
 async function restoreFromTrash(id){
@@ -1014,6 +1021,7 @@ function renderPersonPicker(){
    MAIN RENDER
    ================================================================ */
 function render(){
+  _pbSet=null;   // paid-back index is rebuilt per render
   if(!config){ renderOnboarding(); return; }
   if(!config.deviceMemberId){
     // auto-pick this device's person from the "You" name they entered at setup;
@@ -1280,6 +1288,17 @@ function upcomingSection(ups){
   wrap.append(list);
   return wrap;
 }
+// which expenses have a linked paid-back settlement — rebuilt once per render so
+// a row reads "paid back" whenever ANY settlement points at it, even if the link field is stale
+let _pbSet=null;
+function paidBackSet(){
+  if(!_pbSet){
+    _pbSet=new Set();
+    for(const x of Object.values(state.transactions)) if(x.type==='settlement'&&x.forTxn) _pbSet.add(x.forTxn);
+  }
+  return _pbSet;
+}
+function isPaidBack(t){ return !!((t.paidBackId && state.transactions[t.paidBackId]) || paidBackSet().has(t.id)); }
 // show who logged an entry — only when it wasn't you (that's the useful signal)
 function addedByTag(t){
   const cb=t.createdBy;
@@ -1313,7 +1332,7 @@ function txRow(t,i){
         addedByTag(t),
         (t.hasReceipt||t.thumb)?h('span',{class:'clip',html:icon(ICONS.clip)}):null)
     ),
-    (()=>{ const pb=t.paidBackId && state.transactions[t.paidBackId];
+    (()=>{ const pb=isPaidBack(t);
       return h('div',{class:'amt'},
         h('div',{class:'n '+(pb?'pos':delta>0.005?'pos':delta<-0.005?'neg':'')}, (Math.abs(delta)<0.005?money(0):money(Math.abs(delta),false))),
         h('div',{class:'l',style:pb?{color:'var(--forest)',fontWeight:'800'}:null}, pb?'paid back ✓':(delta>0.005?'you lent':delta<-0.005?'you owe':'even'))); })()
@@ -1828,23 +1847,40 @@ function openExpenseSheet(existing){
     const t=state.transactions[data.id]; if(!t||t.type!=='expense') return;
     const sh=t.shares||computeShares(t.amount,t.split,t.paidBy);
     const ower=otherId(t.paidBy), owed=Math.round((sh[ower]||0)*100)/100;
-    const pb=t.paidBackId && state.transactions[t.paidBackId];
-    if(pb){
-      paidBackZone.append(h('button',{class:'btn btn-ghost',type:'button',style:{width:'100%'},onclick:async()=>{
-        const sid=t.paidBackId; delete t.paidBackId; t.updatedAt=Date.now();
-        await persistTransaction(t);
-        if(state.transactions[sid]) await removeTransaction(sid);
-        delete data.paidBackId; toast('Paid-back undone'); paintPaidBack();
-      }},'✓ Paid back — tap to undo'));
+    const linked=()=>Object.values(state.transactions).filter(x=>x.type==='settlement'&&x.forTxn===t.id);
+    if(isPaidBack(t)){
+      const undoBtn=h('button',{class:'btn btn-ghost',type:'button',style:{width:'100%'}},'✓ Paid back — tap to undo');
+      undoBtn.addEventListener('click', async()=>{
+        if(undoBtn.disabled) return; undoBtn.disabled=true;
+        try{
+          delete t.paidBackId; t.updatedAt=Date.now();
+          await persistTransaction(t);
+          for(const s of linked()) await hardRemoveTransaction(s.id);   // sweeps duplicates too
+          delete data.paidBackId; _pbSet=null;
+          toast('Paid-back undone'); render();
+        }catch(err){ console.error(err); toast('Couldn\'t undo — try again'); }
+        paintPaidBack(); undoBtn.disabled=false;
+      });
+      paidBackZone.append(undoBtn);
     } else if(owed>0.005){
-      paidBackZone.append(h('button',{class:'btn btn-forest',type:'button',style:{width:'100%'},onclick:async()=>{
-        const st={id:'st_'+rid(),type:'settlement',from:ower,to:t.paidBy,amount:owed,date:todayStr(),
-          note:'Paid back: '+(t.description||catOf(t.category).label),forTxn:t.id,createdBy:config.deviceMemberId,createdAt:Date.now()};
-        await persistTransaction(st);
-        t.paidBackId=st.id; t.updatedAt=Date.now();
-        await persistTransaction(t);
-        data.paidBackId=st.id; toast('Marked paid back ✓'); paintPaidBack();
-      }}, h('span',{html:icon(ICONS.check)}), 'Mark paid back — '+memberName(ower)+' paid '+money(owed)));
+      const markBtn=h('button',{class:'btn btn-forest',type:'button',style:{width:'100%'}},
+        h('span',{html:icon(ICONS.check)}), 'Mark paid back — '+memberName(ower)+' paid '+money(owed));
+      markBtn.addEventListener('click', async()=>{
+        if(markBtn.disabled) return; markBtn.disabled=true;   // double-tap guard
+        try{
+          // never create a second settlement for the same expense
+          const existing=linked()[0];
+          const st=existing || {id:'st_'+rid(),type:'settlement',from:ower,to:t.paidBy,amount:owed,date:todayStr(),
+            note:'Paid back: '+(t.description||catOf(t.category).label),forTxn:t.id,createdBy:config.deviceMemberId,createdAt:Date.now()};
+          if(!existing) await persistTransaction(st);
+          t.paidBackId=st.id; t.updatedAt=Date.now();
+          await persistTransaction(t);
+          data.paidBackId=st.id; _pbSet=null;
+          toast('Marked paid back ✓');
+        }catch(err){ console.error(err); toast('Couldn\'t save — try again'); }
+        paintPaidBack(); markBtn.disabled=false;
+      });
+      paidBackZone.append(markBtn);
     }
   }
   paintPaidBack();
