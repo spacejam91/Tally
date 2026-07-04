@@ -446,6 +446,7 @@ let state = {             // live data
   transactions:{},        // id -> txn
   recurring:{},           // id -> template
   skipRecurring:{},       // id -> true : recurring instances the user deleted on purpose
+  trash:{},               // id -> deleted txn (+deletedAt) — restorable for 30 days
 };
 let cloud = null;         // {app, db, auth, hid, unsub:[]}
 let currentScreen = 'home';
@@ -609,11 +610,12 @@ function localLoad(){
     state.transactions = d.transactions || {};
     state.recurring = d.recurring || {};
     state.skipRecurring = d.skipRecurring || {};
+    state.trash = d.trash || {};
     state.meta = { members: config.members, currency: config.currency, budgets: config.budgets||{} };
-  }catch(e){ state.transactions={}; state.recurring={}; state.skipRecurring={}; }
+  }catch(e){ state.transactions={}; state.recurring={}; state.skipRecurring={}; state.trash={}; }
 }
 function localPersist(){
-  try{ localStorage.setItem(LOCAL_DATA_KEY, JSON.stringify({transactions:state.transactions, recurring:state.recurring, skipRecurring:state.skipRecurring})); }
+  try{ localStorage.setItem(LOCAL_DATA_KEY, JSON.stringify({transactions:state.transactions, recurring:state.recurring, skipRecurring:state.skipRecurring, trash:state.trash})); }
   catch(e){ toast('Device storage is full — change couldn\'t be saved. Export a backup, or turn on cloud sync.'); }
 }
 function localReceipts(){ try{ return JSON.parse(localStorage.getItem(LOCAL_RCPT_KEY))||{}; }catch(e){ return {}; } }
@@ -678,6 +680,10 @@ function attachCloudListeners(){
     const map={}; snap.forEach(d=>map[d.id]={id:d.id, ...d.data()});
     state.recurring = map; afterData();
   }, err=>toast('Sync error: '+err.code)));
+  cloud.unsub.push(onSnapshot(hcol('trash'), snap=>{
+    const map={}; snap.forEach(d=>map[d.id]={id:d.id, ...d.data()});
+    state.trash = map; if(currentScreen) render();
+  }, err=>toast('Sync error: '+err.code)));
 }
 
 const isCloud = () => !!(config && config.firebase && config.firebase.config);
@@ -705,26 +711,59 @@ async function persistTransaction(t, receiptFull /*optional*/){
 async function deleteReceiptDoc(id){
   try{ await cloud.fs.deleteDoc(hdoc('receipts', id)); }catch(e){}
 }
+// soft delete: moves the transaction to a 30-day trash (receipt kept until purge).
+// Recurring instances only get a "don't regenerate" tombstone when their date has
+// already arrived — deleting a future-dated (pre-logged) one just un-logs it.
 async function removeTransaction(id){
   const t = state.transactions[id];
+  if(!t) return;
   delete state.transactions[id]; delete receiptCache[id];
-  const wasRecurring = t && t.recurringId;
-  if(wasRecurring){ state.skipRecurring = state.skipRecurring||{}; state.skipRecurring[id]=true; }
+  const entry = {...JSON.parse(JSON.stringify(t)), deletedAt: Date.now()};
+  state.trash[id]=entry;
+  const needTomb = t.recurringId && (t.date||'') <= todayStr();
+  if(needTomb){ state.skipRecurring = state.skipRecurring||{}; state.skipRecurring[id]=true; }
   if(isCloud()){
-    if(wasRecurring) await cloud.fs.setDoc(cloud.fs.doc(cloud.db,'households',cloud.hid), {skipRecurring:{[id]:true}}, {merge:true});
+    if(needTomb) await cloud.fs.setDoc(cloud.fs.doc(cloud.db,'households',cloud.hid), {skipRecurring:{[id]:true}}, {merge:true});
+    await cloud.fs.setDoc(hdoc('trash', id), JSON.parse(JSON.stringify(entry)));
     await cloud.fs.deleteDoc(hdoc('transactions', id));
-    await deleteReceiptDoc(id);
-  } else { localPersist(); localDelReceipt(id); }
+  } else { localPersist(); }
   render();
 }
-// bring back a just-deleted transaction (undo): clears any recurring tombstone, re-persists receipt
-async function restoreTransaction(t, receipt){
-  if(t.recurringId && state.skipRecurring && state.skipRecurring[t.id]){
-    delete state.skipRecurring[t.id];
-    if(isCloud()){ try{ await cloud.fs.setDoc(cloud.fs.doc(cloud.db,'households',cloud.hid), {skipRecurring:{[t.id]: cloud.fs.deleteField()}}, {merge:true}); }catch(e){} }
+// bring a trashed transaction back — clears any tombstone; the receipt was never deleted
+async function restoreFromTrash(id){
+  const e=state.trash[id]; if(!e){ toast('Nothing to restore.'); return; }
+  const t={...e}; delete t.deletedAt;
+  delete state.trash[id];
+  if(t.recurringId && state.skipRecurring && state.skipRecurring[id]){
+    delete state.skipRecurring[id];
+    if(isCloud()){ try{ await cloud.fs.setDoc(cloud.fs.doc(cloud.db,'households',cloud.hid), {skipRecurring:{[id]: cloud.fs.deleteField()}}, {merge:true}); }catch(e2){} }
   }
-  await persistTransaction(t, receipt||undefined);
-  toast('Restored');
+  state.transactions[id]=t;
+  if(isCloud()){
+    await cloud.fs.setDoc(hdoc('transactions', id), JSON.parse(JSON.stringify(t)));
+    try{ await cloud.fs.deleteDoc(hdoc('trash', id)); }catch(e2){}
+  } else { localPersist(); }
+  render(); toast('Restored');
+}
+// permanently drop trash entries older than 30 days (and finally delete their receipts)
+function purgeTrash(){
+  const cutoff=Date.now()-30*24*3600*1000;
+  let dirty=false;
+  for(const [id,e] of Object.entries(state.trash)){
+    if((e.deletedAt||0)<cutoff){
+      delete state.trash[id]; dirty=true;
+      if(isCloud()){ try{ cloud.fs.deleteDoc(hdoc('trash',id)); }catch(e2){} deleteReceiptDoc(id); }
+      else localDelReceipt(id);
+    }
+  }
+  if(dirty && !isCloud()) localPersist();
+}
+// hard remove a trash entry now (explicit "delete forever")
+async function purgeTrashEntry(id){
+  delete state.trash[id];
+  if(isCloud()){ try{ await cloud.fs.deleteDoc(hdoc('trash',id)); }catch(e){} await deleteReceiptDoc(id); }
+  else { localDelReceipt(id); localPersist(); }
+  render();
 }
 async function persistRecurring(t){
   state.recurring[t.id]=t;
@@ -766,6 +805,7 @@ async function fetchReceipt(id){
 function ymOf(d){ return d.slice(0,7); }
 function afterData(){
   generateRecurring();
+  purgeTrash();
   render();
 }
 function generateRecurring(){
@@ -1096,7 +1136,13 @@ async function logUpcoming(o, instId){
     date:dateStr, paidBy:t.paidBy, split:t.split, shares:computeShares(t.amount,t.split,t.paidBy),
     hasReceipt:false, thumb:null, recurringId:t.id, createdBy:config.deviceMemberId, createdAt:Date.now(), updatedAt:Date.now() };
   await persistTransaction(txn);
-  toast((t.description||'Bill')+' logged — balance updated');
+  toastUndo((t.description||'Bill')+' logged — balance updated', async()=>{
+    // un-log: hard remove (no trash, no tombstone) so it still auto-appears on its due date
+    delete state.transactions[instId];
+    if(isCloud()){ try{ await cloud.fs.deleteDoc(hdoc('transactions', instId)); }catch(e){} }
+    else localPersist();
+    render(); toast('Un-logged');
+  });
 }
 // recurring bills expected in a month that haven't been logged yet (for month-ahead budgeting)
 function plannedForMonth(ym){
@@ -1203,7 +1249,8 @@ function upcomingSection(ups){
         h('div',{class:'amt'}, money(o.tpl.amount)),
         h('div',{class:'up-when'}, fmtUpcoming(o.date)),
         logged
-          ? h('div',{style:{fontSize:'10.5px',color:'var(--forest)',fontWeight:'800',marginTop:'4px'}},'✓ logged')
+          ? h('button',{type:'button',style:{fontSize:'10.5px',color:'var(--forest)',fontWeight:'800',marginTop:'4px',padding:'2px 0'},
+              onclick:(e)=>{e.stopPropagation(); if(state.transactions[instId]) openExpenseSheet(state.transactions[instId]);}},'✓ logged — view')
           : h('button',{class:'btn btn-ghost btn-sm',type:'button',style:{marginTop:'6px',padding:'5px 11px',fontSize:'11.5px'},
               onclick:(e)=>{e.stopPropagation(); logUpcoming(o, instId);}},'Log now'))));
   });
@@ -1479,7 +1526,10 @@ function screenSettings(){
     h('div',{class:'set-row tap',onclick:exportData}, h('div',{class:'lbl'},'Export backup', h('small',{},'Download all data as a JSON file')), h('span',{html:icon(ICONS.down),style:{color:'var(--muted-txt)'}})),
     h('div',{class:'set-row tap',onclick:exportCSV}, h('div',{class:'lbl'},'Export CSV', h('small',{},'Spreadsheet of every transaction')), h('span',{html:icon(ICONS.down),style:{color:'var(--muted-txt)'}})),
     h('div',{class:'set-row tap',onclick:exportICS}, h('div',{class:'lbl'},'Bill reminders', h('small',{},'Add your recurring bills to your phone calendar with alerts')), h('span',{html:icon(ICONS.down),style:{color:'var(--muted-txt)'}})),
-    h('div',{class:'set-row tap',onclick:importData}, h('div',{class:'lbl'},'Import backup', h('small',{},'Restore from a JSON file')), h('span',{html:icon(ICONS.right),style:{color:'var(--muted-txt)'}}))
+    h('div',{class:'set-row tap',onclick:importData}, h('div',{class:'lbl'},'Import backup', h('small',{},'Restore from a JSON file')), h('span',{html:icon(ICONS.right),style:{color:'var(--muted-txt)'}})),
+    h('div',{class:'set-row tap',onclick:openTrashSheet},
+      h('div',{class:'lbl'},'Recently deleted', h('small',{},'Restore deleted items — kept for 30 days')),
+      Object.keys(state.trash||{}).length?h('span',{class:'pill local'}, String(Object.keys(state.trash).length)):h('span',{html:icon(ICONS.right),style:{color:'var(--muted-txt)'}}))
   ));
   s.append(h('div',{class:'card-list'},
     h('div',{class:'set-row tap',onclick:()=>{
@@ -1492,6 +1542,32 @@ function screenSettings(){
   ));
   s.append(h('div',{style:{textAlign:'center',color:'var(--muted-txt)',fontSize:'12px',marginTop:'10px'}},'Tally · made with care ◑'));
   return s;
+}
+
+/* ---- recently deleted (trash) ---- */
+function openTrashSheet(){
+  const reopen=()=>{ [...document.querySelectorAll('.scrim')].forEach(x=>x.remove()); openTrashSheet(); };
+  const entries=Object.values(state.trash).sort((a,b)=>(b.deletedAt||0)-(a.deletedAt||0));
+  const fields=[];
+  if(!entries.length){
+    fields.push(h('div',{class:'empty'}, h('div',{class:'big'},'🗑️'), h('p',{},'Nothing here. Deleted items stay restorable for 30 days.')));
+  } else {
+    fields.push(h('div',{class:'banner',html:icon(ICONS.info)+' <span>Deleted items can be restored for 30 days, then they\'re removed for good.</span>'}));
+    entries.forEach(e=>{
+      const isSettle=e.type==='settlement';
+      const c=isSettle?null:catOf(e.category);
+      const left=Math.max(0, 30-Math.floor((Date.now()-(e.deletedAt||0))/86400000));
+      fields.push(h('div',{class:'bud-row'},
+        h('div',{class:'nm'}, h('span',{},isSettle?'🤝':c.em),
+          h('div',{},
+            h('div',{}, isSettle?'Settle up':(e.description||c.label)),
+            h('div',{style:{fontSize:'11.5px',color:'var(--muted-txt)',fontWeight:'500'}}, money(e.amount)+' · '+fmtDate(e.date)+' · gone in '+left+'d'))),
+        h('div',{style:{display:'flex',gap:'8px',flex:'none'}},
+          h('button',{class:'btn btn-forest btn-sm',type:'button',onclick:async()=>{ await restoreFromTrash(e.id); reopen(); }},'Restore'),
+          h('button',{class:'btn btn-danger btn-sm',type:'button',onclick:async()=>{ if(confirm('Delete forever? This one can\'t be undone.')){ await purgeTrashEntry(e.id); reopen(); } },html:icon(ICONS.trash)}))));
+    });
+  }
+  buildSheet('Recently deleted', fields, async()=>true);
 }
 
 /* ---- PIN lock (per device) ---- */
@@ -1781,11 +1857,8 @@ function openExpenseSheet(existing){
     toast(editing?'Saved':'Expense added');
     return true;
   }, editing?async()=>{
-    const snapshot=JSON.parse(JSON.stringify(state.transactions[data.id]||data));
-    let receipt=null;
-    if(snapshot.hasReceipt||snapshot.thumb){ try{ receipt=await fetchReceipt(data.id); }catch(e){} }
     await removeTransaction(data.id);
-    toastUndo('Expense deleted', ()=>restoreTransaction(snapshot, receipt));
+    toastUndo('Expense deleted', ()=>restoreFromTrash(data.id));
     return true;
   }:null);
 }
@@ -1840,9 +1913,8 @@ function openSettleSheet(existing){
     toast('Payment recorded');
     return true;
   }, editing?async()=>{
-    const snapshot=JSON.parse(JSON.stringify(state.transactions[data.id]||data));
     await removeTransaction(data.id);
-    toastUndo('Payment deleted', ()=>restoreTransaction(snapshot, null));
+    toastUndo('Payment deleted', ()=>restoreFromTrash(data.id));
     return true;
   }:null);
 }
@@ -1913,7 +1985,12 @@ function openRecurringSheet(existing){
     generateRecurring(); render();
     toast(editing?'Saved':'Recurring bill added');
     return true;
-  }, editing?async()=>{ if(confirm('Delete this recurring bill? (Already-added expenses stay.)')){ await removeRecurring(data.id); toast('Deleted'); return true; } return false; }:null);
+  }, editing?async()=>{
+    const snapshot=JSON.parse(JSON.stringify(state.recurring[data.id]||data));
+    await removeRecurring(data.id);
+    toastUndo('Recurring bill deleted (logged expenses stay)', ()=>persistRecurring(snapshot));
+    return true;
+  }:null);
 }
 
 /* ================================================================

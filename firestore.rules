@@ -33,6 +33,9 @@ service cloud.firestore {
       match /receipts/{docId} {
         allow read, write: if request.auth != null;
       }
+      match /trash/{docId} {
+        allow read, write: if request.auth != null;
+      }
     }
 
     // Deny everything else.
