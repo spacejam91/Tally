@@ -1144,6 +1144,22 @@ async function logUpcoming(o, instId){
     render(); toast('Un-logged');
   });
 }
+// un-log a logged bill from the upcoming list, any time (not just the undo toast)
+async function unlogUpcoming(instId){
+  const t=state.transactions[instId];
+  if(!t){ render(); return; }
+  if((t.date||'') > todayStr()){
+    // future pre-log: clean removal — it will still auto-appear on its due date
+    delete state.transactions[instId];
+    if(isCloud()){ try{ await cloud.fs.deleteDoc(hdoc('transactions', instId)); }catch(e){} }
+    else localPersist();
+    render(); toast('Un-logged — it\'ll come back on its due date');
+  } else {
+    // due date already arrived: normal delete (tombstoned so it doesn't instantly regenerate)
+    await removeTransaction(instId);
+    toastUndo('Un-logged', ()=>restoreFromTrash(instId));
+  }
+}
 // recurring bills expected in a month that haven't been logged yet (for month-ahead budgeting)
 function plannedForMonth(ym){
   const [y,m]=ym.split('-').map(Number);
@@ -1249,8 +1265,11 @@ function upcomingSection(ups){
         h('div',{class:'amt'}, money(o.tpl.amount)),
         h('div',{class:'up-when'}, fmtUpcoming(o.date)),
         logged
-          ? h('button',{type:'button',style:{fontSize:'10.5px',color:'var(--forest)',fontWeight:'800',marginTop:'4px',padding:'2px 0'},
-              onclick:(e)=>{e.stopPropagation(); if(state.transactions[instId]) openExpenseSheet(state.transactions[instId]);}},'✓ logged — view')
+          ? h('div',{style:{display:'flex',gap:'8px',justifyContent:'flex-end',alignItems:'center',marginTop:'5px'}},
+              h('button',{type:'button',style:{fontSize:'10.5px',color:'var(--forest)',fontWeight:'800',padding:'2px 0'},
+                onclick:(e)=>{e.stopPropagation(); if(state.transactions[instId]) openExpenseSheet(state.transactions[instId]);}},'✓ logged'),
+              h('button',{class:'btn btn-ghost btn-sm',type:'button',style:{padding:'4px 10px',fontSize:'11px'},
+                onclick:(e)=>{e.stopPropagation(); unlogUpcoming(instId);}},'Un-log'))
           : h('button',{class:'btn btn-ghost btn-sm',type:'button',style:{marginTop:'6px',padding:'5px 11px',fontSize:'11.5px'},
               onclick:(e)=>{e.stopPropagation(); logUpcoming(o, instId);}},'Log now'))));
   });
